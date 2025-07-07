@@ -6,6 +6,7 @@ import time
 import roboticstoolbox as rp
 import numpy as np
 import platform
+from tools.init_tools import get_image_path, get_my_os
 import os
 from tkinter import filedialog
 import PIL
@@ -33,16 +34,10 @@ logging.basicConfig(level = logging.DEBUG,
 #logging.disable(logging.DEBUG)
 
 
+
 # Finds out where the program and images are stored
-my_os = platform.system()
-if my_os == "Windows":
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Windows")
-else:
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Linux")
-    
-logging.debug(Image_path)
+my_os = get_my_os()
+Image_path = get_image_path()
 
 text_size = 14
 
@@ -90,6 +85,7 @@ prev_positions = np.array([0,0,0,0,0,0])
 robot_pose = [0,0,0,0,0,0] #np.array([0,0,0,0,0,0])
 
 padx_top_bot = 20
+
 def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,

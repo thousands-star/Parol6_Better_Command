@@ -1,53 +1,15 @@
 import time
 import multiprocessing
-import os
-import logging
-import platform
-import serial
 import threading
 
 import SIMULATOR_Robot
-import PAROL6_ROBOT 
+from tools.init_tools import init_serial, get_image_path,get_my_os
 import Serial_sender_good_latest
 import GUI_PAROL_latest
 
-# Finds out where the program and images are stored
-my_os = platform.system()
-if my_os == "Windows":
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Windows")
-else:
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Linux")
-    
-logging.debug(Image_path)
-
-print("run this")
-logging.basicConfig(level = logging.DEBUG,
-    format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
-    datefmt='%H:%M:%S'
-)
-
-if my_os == "Windows": 
-    STARTING_PORT = 3 # COM3
-else:   
-    STARTING_PORT = 0
-# if using linux this will add /dev/ttyACM + 0 ---> /dev/ttyACM0
-# if using windows this will add COM + 3 ---> COM3 
-str_port = ''
-logging.disable(logging.DEBUG)
-if my_os == "Windows":
-    try:
-        str_port = 'COM' + str(STARTING_PORT)
-        ser = serial.Serial(port=str_port, baudrate=3000000, timeout=0)
-    except:
-        ser = serial.Serial()
-elif my_os == "Linux":
-    try:
-        str_port = '/dev/ttyACM' + str(STARTING_PORT)
-        ser = serial.Serial(port=str_port, baudrate=3000000, timeout=0)
-    except:
-        ser = serial.Serial()
+ser, STARTING_PORT = init_serial()
+my_os = get_my_os()
+image_path = get_image_path()
 
 def SIMULATOR_process(Position_out,Position_in,Position_Sim,Buttons):
     SIMULATOR_Robot.GUI(Position_out,Position_in,Position_Sim,Buttons)

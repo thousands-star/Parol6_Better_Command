@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import time
 import roboticstoolbox as rp
 import numpy as np
-import platform
+from tools.init_tools import get_image_path, get_my_os
 import os
 import PIL
 from PIL import Image, ImageTk
@@ -29,14 +29,8 @@ logging.basicConfig(level = logging.DEBUG,
 
 
 # Finds out where the program and images are stored
-my_os = platform.system()
-if my_os == "Windows":
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Windows")
-else:
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Linux")
-    
+my_os = get_my_os()
+Image_path = get_image_path()
 logging.debug(Image_path)
 
 text_size = 14
