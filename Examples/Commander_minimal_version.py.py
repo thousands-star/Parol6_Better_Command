@@ -33,7 +33,7 @@ logging.disable(logging.DEBUG)
 
 my_os = platform.system()
 if my_os == "Windows": 
-    STARTING_PORT = 58 # COM3
+    STARTING_PORT = 3 # COM3
 str_port = ''
 
 if my_os == "Windows":
