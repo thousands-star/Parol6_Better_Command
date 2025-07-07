@@ -1,18 +1,15 @@
 from oclock import Timer, loop, interactiveloop
-import time, random, threading
-import multiprocessing
-import serial
+import time, random
 import time
 import roboticstoolbox as rp
 import struct
 import logging
-import GUI_PAROL_latest
-import SIMULATOR_Robot
 import PAROL6_ROBOT 
 import numpy as np
 from spatialmath import *
-import platform
-import os
+from tools.init_tools import get_my_os, get_image_path
+from tools.log_tools import nice_print_sections
+
 import re
 import math
 from roboticstoolbox import trapezoidal
@@ -25,24 +22,17 @@ from spatialmath.base.argcheck import (
     isscalar,
 )
 
-
-
 # Finds out where the program and images are stored
-my_os = platform.system()
-if my_os == "Windows":
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Windows")
-else:
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
-    logging.debug("Os is Linux")
-    
-logging.debug(Image_path)
+my_os = get_my_os()
+Image_path = get_image_path()
 
 print("run this")
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
 )
+
+logging.disable(logging.DEBUG)
 
 ser = None
 #ser.open()
@@ -1917,119 +1907,84 @@ def Task2(shared_string,Position_in,Speed_in,Homed_in,InOut_in,Temperature_error
 
 # Treba mi bytes format za slanje, nije baš user readable je pretvori iz hex u ascii
 # ako trebam gledati vrijednosti koristi hex() funkciju
+# 我需要发送用的 bytes 格式，这不是面向用户的可读格式（user readable），
+# 它是十六进制（hex）转换成 ASCII 的格式。
+# 如果我要查看数值，就用 hex() 函数。
+# I need the bytes format for sending; it's not really user-readable — it's hex to ASCII.
+# If I need to view the values, I use the hex() function.
 
 # Dummy test task
 # Best used to show data that we get from the robot and data we get from GUI
-def Task3(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
+def Monitor_System(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
     while(1):
+        # Construct dictionaries for printing.
+        packet_info = {
+            "start_bytes_list":      [0xff,0xff,0xff],
+            "start_bytes_bytes":     bytes([0xff,0xff,0xff]),
+            "Test Split Two Bytes":       Split_2_bitfield(123),
+            "Test Split Three Bytes":  Split_2_3_bytes(-235005),
+            "Test Fusing Three Bytes":            Fuse_3_bytes(Split_2_3_bytes(-235005)),
+            "Test Fusing Two Bytes":    Fuse_bitfield_2_bytearray(Split_2_bitfield(123)),
+        }
         
-        start_bytes =  [0xff,0xff,0xff] 
-        print(start_bytes)
-        start_bytes = bytes(start_bytes)
-        print(start_bytes)
-        a = Split_2_bitfield(123)
-        print(a)
-        b = Split_2_3_bytes(-235005) 
-        print(b)
-        print(hex(b[0]))
-        print(hex(b[1]))
-        print(hex(b[2]))
-        print(bytes([b[0]]))
-        print(bytes([b[1]]))
-        print(bytes([b[2]]))
-        print("fuesd")
-        c = Fuse_3_bytes(b)
-        print(c)
-        d = Fuse_bitfield_2_bytearray(a)
-        print(d)
-        test_list = [10]*50
-        elements = list(range(60))
-        Unpack_data_test(elements)
-        print("$$$$$$$$$$$$$$$$")
-        Pack_data_test()
+        # The test is not clever enough to self validate, enhance this in future.
+        # test_list = [10]*50
+        # elements = list(range(60))
+        # Unpack_data_test(elements)
+        # print("$$$$$$$$$$$$$$$$")
+        # Pack_data_test()
     	
-        print("")
+        robot_data = {
+            "Position":     Position_in[:],
+            "Speed":        Speed_in[:],
+            "Homed":        Homed_in[:],
+            "I/O status":   InOut_in[:],
+            "Temp error":   Temperature_error_in[:],
+            "Pos error":    Position_error_in[:],
+            "Timeout err":  Timeout_error.value,
+            "Δt raw":       Timing_data_in.value,
+            "Δt (ms)":      f"{Timing_data_in.value*1.42222222e-6:.3f}",
+            "XTR byte":     XTR_data.value,
+            "Grip ID":      Gripper_data_in[0],
+            "Grip pos":     Gripper_data_in[1],
+            "Grip spd":     Gripper_data_in[2],
+            "Grip cur":     Gripper_data_in[3],
+            "Grip stat":    Gripper_data_in[4],
+            "Obj detect":   Gripper_data_in[5],
+        }
 
-        print("ROBOT DATA: ")
-        print("Position from robot is: ",end="")
-        print(Position_in[:])
-        print("Speed from robot is: ",end="")
-        print(Speed_in[:])
-        print("Robot homed status is: ",end="")
-        print(Homed_in[:])
-        print("Robot Input/Output status is: ",end="")
-        print(InOut_in[:])
-        print("Robot temperature error status is: ",end="")
-        print(Temperature_error_in[:])
-        print("Robot temperature error status is: ",end="")
-        print(Position_error_in[:])
-        print("Timeout_error is: ",end="")
-        print(Timeout_error.value)
-        print("Time between 2 commands raw is: ",end="")
-        print(Timing_data_in.value)
-        print("Time between 2 commands in ms is: ",end="")
-        print(Timing_data_in.value*1.42222222e-6)
-        print("XTR_DATA byte is: ",end="")
-        print(XTR_data.value)
-        print("Gripper ID is: ",end="")
-        print(Gripper_data_in[0])
-        print("Gripper position is: ",end="")
-        print(Gripper_data_in[1])
-        print("Gripper speed is: ",end="")
-        print(Gripper_data_in[2])
-        print("Gripper current is: ",end="")
-        print(Gripper_data_in[3])
-        print("Gripper status is: ",end="")
-        print(Gripper_data_in[4])
-        print("Gripper object detection is: ",end="")
-        print(Gripper_data_in[5])
+        commanded_data = {
+            "I/O out":      InOut_out[:],
+            "Command":      Command_out.value,
+            "Speed out":    Speed_out[:],
+        }
 
-        print("")
+        gui_data = {
+            "Joint jog":    list(Joint_jog_buttons),
+            "Cart jog":     list(Cart_jog_buttons),
+            "Home btn":     Buttons[0],
+            "Enable btn":   Buttons[1],
+            "Disable btn":  Buttons[2],
+            "Clear err":    Buttons[3],
+            "Real/Sim":     f"{Buttons[4]}/{Buttons[5]}",
+            "Speed slider": Jog_control[0],
+            "WRF/TRF":      Jog_control[2],
+            "Demo app":     Buttons[6],
+            "Exec state":   Buttons[7],
+            "Park btn":     Buttons[8],
+            "Shared str":   shared_string.value.decode().strip(),
+        }
 
-        print("COMMANDED DATA: ")
-        print("Robot Input/Output status is (OUT): ",end="")
-        print(InOut_out[:])
-        print("Robot Commands is:  ",end="")
-        print(Command_out.value)
-        print("Commanded robot speeds are: ",end="")
-        print(Speed_out[:])
-
-        print("")
-
-        print("GUI DATA: ")
-        print("Joint jog buttons: ",end="")
-        print(list(Joint_jog_buttons))
-        print("Cart jog buttons: ",end="")
-        print(list(Cart_jog_buttons))
-        print("Home button state:",end="")
-        print(Buttons[0])
-        print("Enable button state:",end="")
-        print(Buttons[1])
-        print("Disable button state:",end="")
-        print(Buttons[2])
-        print("Clear error button state:",end="")
-        print(Buttons[3])
-        print("Real robot state: ",end="")
-        print(Buttons[4])
-        print("Simulator robot state: ",end="")
-        print(Buttons[5])
-        print("Speed slider is: ",end="")
-        print(Jog_control[0])
-        print("WRF/TRF is: ",end="")
-        print(Jog_control[2])
-        print("Demo app button state: ",end="")
-        print(Buttons[6])
-        print("Shared string is: ",end="")
-        print(shared_string.value)
-        print("Program execution variable: ",end="")
-        print(Buttons[7])
-        print("Park button state: ",end="")
-        print(Buttons[8])
-
-
+        # Print the data at once.
+        nice_print_sections({
+            #"Packet Info":     packet_info,
+            "Robot Data":      robot_data,
+            "Commanded Data":  commanded_data,
+            "GUI Data":        gui_data,
+        })
 
         time.sleep(3)
 
@@ -2581,142 +2536,3 @@ def check_elements(lst):
         if element == 1:
             return i
     return -1  # Return -1 if no element is 1
-
-def Main(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,): 
-
-    t1 = threading.Thread(target = Task1, args = (shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
-    
-    t2 = threading.Thread(target = Task2, args = (shared_string, Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,General_data,))
-    
-    t3 = threading.Thread(target = Task3,args = ( shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
-
-    t1.start()
-    t2.start()
-    t3.start()
-
-
-
-def GUI_process(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
-
-        GUI_PAROL_latest.GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons)
-
-
-def SIMULATOR_process(Position_out,Position_in,Position_Sim,Buttons):
-    SIMULATOR_Robot.GUI(Position_out,Position_in,Position_Sim,Buttons)
-
-# u PROCES kao argumenti idu multi proc arrays tu dolje u initi
-# Gore u thredovima i funkcijama to nazovem kako oćem i pozivam stvari iz toga i tjt
-
-# In the Process, the multiprocessing.Array objects below are passed as arguments.
-# In the threads and functions above, I can name them however I want and just call things from them, that’s it.
-if __name__ == '__main__':
-
-    print("running")
-    time.sleep(0.01) 
-
-    try:
-        ser.close()
-    except:
-        None
-
-    # Data sent by the PC to the robot
-    Position_out = multiprocessing.Array("i",[1,11,111,1111,11111,10], lock=False) 
-
-    Speed_out = multiprocessing.Array("i",[2,21,22,23,24,25], lock=True)
-
-
-    Command_out = multiprocessing.Value('i',0) 
-    Affected_joint_out = multiprocessing.Array("i",[1,1,1,1,1,1,1,1], lock=False) 
-    InOut_out = multiprocessing.Array("i",[0,0,0,0,0,0,0,0], lock=False) #IN1,IN2,OUT1,OUT2,ESTOP
-    Timeout_out = multiprocessing.Value('i',0) 
-    #Positon,speed,current,command,mode,ID
-    Gripper_data_out = multiprocessing.Array("i",[1,1,1,1,0,0], lock=False)
-
-    # Data sent from robot to PC
-    Position_in = multiprocessing.Array("i",[31,32,33,34,35,36], lock=False) 
-    Speed_in = multiprocessing.Array("i",[41,42,43,44,45,46], lock=False) 
-    Homed_in = multiprocessing.Array("i",[1,1,1,1,1,1,1,1], lock=False) 
-    InOut_in = multiprocessing.Array("i",[1,1,1,1,1,1,1,1], lock=False) #IN1,IN2,OUT1,OUT2,ESTOP
-    Temperature_error_in = multiprocessing.Array("i",[1,1,1,1,1,1,1,1], lock=False) 
-    Position_error_in = multiprocessing.Array("i",[1,1,1,1,1,1,1,1], lock=False) 
-    Timeout_error = multiprocessing.Value('i',0) 
-    # how much time passed between 2 sent commands (2byte value, last 2 digits are decimal so max value is 655.35ms?)
-    Timing_data_in = multiprocessing.Value('i',0) 
-    XTR_data =   multiprocessing.Value('i',0)
-
-    #ID,Position,speed,current,status,obj_detection
-    Gripper_data_in = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False)  
-
-    # GUI control data
-    Homed_out = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False) 
-
-    #General robot vars
-    Robot_GUI_mode =   multiprocessing.Value('i',0)
-
-    # Robot jogging vars
-    Joint_jog_buttons = multiprocessing.Array("i",[0,0,0,0,0,0,0,0,0,0,0,0], lock=False) 
-    Cart_jog_buttons = multiprocessing.Array("i",[0,0,0,0,0,0,0,0,0,0,0,0], lock=False)
-
-    # Speed slider, acc slider, WRF/TRF 
-    Jog_control = multiprocessing.Array("i",[0,0,0,0], lock=False) 
-
-    # COM PORT, BAUD RATE, 
-    General_data =  multiprocessing.Array("i",[STARTING_PORT,3000000], lock=False) 
-
-    # Home,Enable,Disable,Clear error,Real_robot,Sim_robot, demo_app, program execution,
-    Buttons =  multiprocessing.Array("i",[0,0,0,0,1,1,0,0,0], lock=False) 
-
-    # Positions for robot simulator
-    Position_Sim =  multiprocessing.Array("i",[0,0,0,0,0,0], lock=False) 
-
-    shared_string = multiprocessing.Array('c', b' ' * 100)  # Create a character array of size 100
-    
-
-    # Process
-    process1 = multiprocessing.Process(target=Main,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,])
-    
-    process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,])
-    
-
-    process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Position_out,Position_in,Position_Sim,Buttons])
-
-
-
-    process1.start()
-    time.sleep(1)
-    process2.start()
-    time.sleep(1)
-    process3.start()
-    process1.join()
-    process2.join()
-    process3.join()
-    process1.terminate()
-    process2.terminate()
-    process3.terminate()
-
-
-
-
-
