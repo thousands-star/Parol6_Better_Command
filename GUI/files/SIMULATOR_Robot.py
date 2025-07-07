@@ -31,10 +31,10 @@ logging.basicConfig(level = logging.DEBUG,
 # Finds out where the program and images are stored
 my_os = platform.system()
 if my_os == "Windows":
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
     logging.debug("Os is Windows")
 else:
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
     logging.debug("Os is Linux")
     
 logging.debug(Image_path)

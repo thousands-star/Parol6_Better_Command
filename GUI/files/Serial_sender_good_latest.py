@@ -27,13 +27,16 @@ from spatialmath.base.argcheck import (
 
 
 
+# Finds out where the program and images are stored
 my_os = platform.system()
 if my_os == "Windows":
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
     logging.debug("Os is Windows")
-else: 
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+else:
+    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ImageGUI")
     logging.debug("Os is Linux")
+    
+logging.debug(Image_path)
 
 print("run this")
 logging.basicConfig(level = logging.DEBUG,
@@ -2699,6 +2702,7 @@ if __name__ == '__main__':
     Position_Sim =  multiprocessing.Array("i",[0,0,0,0,0,0], lock=False) 
 
     shared_string = multiprocessing.Array('c', b' ' * 100)  # Create a character array of size 100
+    
 
     # Process
     process1 = multiprocessing.Process(target=Main,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
@@ -2715,6 +2719,7 @@ if __name__ == '__main__':
     process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Position_out,Position_in,Position_Sim,Buttons])
 
 
+
     process1.start()
     time.sleep(1)
     process2.start()
@@ -2723,7 +2728,6 @@ if __name__ == '__main__':
     process1.join()
     process2.join()
     process3.join()
-
     process1.terminate()
     process2.terminate()
     process3.terminate()
