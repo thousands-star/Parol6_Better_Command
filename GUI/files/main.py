@@ -124,10 +124,7 @@ if __name__ == '__main__':
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,])
     
-
     process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Position_out,Position_in,Position_Sim,Buttons])
-
-
 
     process1.start()
     time.sleep(1)

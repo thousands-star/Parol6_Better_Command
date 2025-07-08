@@ -38,6 +38,7 @@ logging.basicConfig(level = logging.DEBUG,
 # Finds out where the program and images are stored
 my_os = get_my_os()
 Image_path = get_image_path()
+logging.debug(Image_path)
 
 text_size = 14
 
@@ -91,8 +92,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
     
-
-
     app = customtkinter.CTk()
     shared_string.value = b'PAROL6 commander v1.0'
     #logging.debug(left_jog_buttons)
@@ -138,20 +137,20 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
         app.Settings_mode_select_button = customtkinter.CTkButton(app.menu_select_frame,text="Settings", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = raise_frame_setting)
         app.Settings_mode_select_button.grid(row=0, column=2, padx=(padx_top_bot,0) ,pady = 5,sticky="nw")
 
-            # Calibrate button
+        # Calibrate button
         app.Calibrate_button = customtkinter.CTkButton(app.menu_select_frame,text="Calibrate", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = raise_calibrate_frame)
         app.Calibrate_button.grid(row=0, column=3, padx=(padx_top_bot,0) ,pady = 5,sticky="nw")
-
-        # Plot button
-        app.Plot_button = customtkinter.CTkButton(app.menu_select_frame,text="Plot", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = raise_calibrate_frame)
-        app.Plot_button.grid(row=0, column=4, padx=(padx_top_bot,0) ,pady = 5,sticky="nw")
 
         # Gripper button
         app.Plot_button = customtkinter.CTkButton(app.menu_select_frame,text="Gripper", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'), command = raise_gripper_frame)
         app.Plot_button.grid(row=0, column=4, padx=(padx_top_bot,0) ,pady = 5,sticky="nw")
 
+        # Teleoperate button
+        app.Plot_button = customtkinter.CTkButton(app.menu_select_frame,text="Teleoperate", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = raise_calibrate_frame)
+        app.Plot_button.grid(row=0, column=5, padx=(padx_top_bot,0) ,pady = 5,sticky="nw")
+
         app.fw_label = customtkinter.CTkLabel(app.menu_select_frame, text="Source controller fw version: 1.0.0", font=customtkinter.CTkFont(size=12))
-        app.fw_label.grid(row=0, column=5, padx=(300,10), pady=5 ,sticky="ne")
+        app.fw_label.grid(row=0, column=6, padx=(120,10), pady=5 ,sticky="ne")
 
         # help button
         help_image =Image.open(os.path.join(Image_path, "help.png"))
