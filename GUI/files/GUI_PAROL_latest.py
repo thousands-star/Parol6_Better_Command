@@ -362,7 +362,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
         app.Set_2_high = customtkinter.CTkButton(app.IO_frame,text="HIGH", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command= lambda: Set_output_2(1))
         app.Set_2_high.grid(row=4, column=2, padx=20,pady = (10,20),sticky="news")
 
-
     def Calibrate_frame():
 
         app.disable_motor = customtkinter.CTkButton(app.Calibrate_frame,text="Disable motor", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = demo_stop)
@@ -377,7 +376,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
         app.joint_select = customtkinter.CTkOptionMenu(app.Calibrate_frame, values=["Joint 1", "Joint 2", "Joint 3", "Joint 4", "Joint 5","Joint 6"],
                                                             command=change_scaling_event)
         app.joint_select.grid(row=2, column=4,padx=(5, 0) )
-
 
     def Gripper_frame():
         # Devicee info
@@ -848,15 +846,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
         app.stop = customtkinter.CTkButton(app.start_stop_frame,text="Stop", width= 35,font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = stop_program)
         app.stop.grid(row=0, column=1, padx=2,pady = 5,sticky="w")
 
-        app.save = customtkinter.CTkButton(app.start_stop_frame,text="Save",width= 35, font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = save_txt)
-        app.save.grid(row=0, column=2, padx=2,pady = 5,sticky="w")
-
-        app.save_as = customtkinter.CTkButton(app.start_stop_frame,text="Save as", width= 35,font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = save_as_txt)
-        app.save_as.grid(row=0, column=3, padx=2,pady = 5,sticky="w")
-
-        app.open = customtkinter.CTkButton(app.start_stop_frame,text="Open",width= 35, font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = open_txt)
-        app.open.grid(row=0, column=4, padx=2,pady = 5,sticky="w")
-
 
     # dodaj slikice kao iz meca studio
     def response_log_frames():
@@ -880,133 +869,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
 
 
     #app.textbox_program.bind("<KeyRelease>", highlight_words)
-
-    def commands_frames():
-        #commands frame
-        app.commands_frame = customtkinter.CTkFrame(app,height = 100,width = 180, corner_radius=0, )
-        app.commands_frame.grid(row=1, column=3, rowspan = 3, padx=(5,5), pady=5, sticky="news")
-        app.commands_frame.grid_columnconfigure(0, weight=0)
-
-        app.select_current_position = customtkinter.CTkRadioButton(master=app.commands_frame, text="Current position/Pose",  value=2,command = Current_position)
-        app.select_current_position.grid(row=0, column=0, pady=10, padx=20, sticky="we")
-
-        app.select_custom_position = customtkinter.CTkRadioButton(master=app.commands_frame, text="Custom positon/Pose",  value=2,command = Custom_position)
-        app.select_custom_position.grid(row=1, column=0, pady=10, padx=20, sticky="we")
-
-        app.select_current_position.select()
-        #app.commands_frame.grid_propagate(False)
-        # https://github.com/TomSchimansky/CustomTkinter/discussions/431
-        style = ttk.Style()
-        style.theme_use("default")
-
-        style.configure("Treeview",
-                        background="#333333",
-                        foreground="white",
-                        rowheight=40,
-                        fieldbackground="#333333",
-                        bordercolor="#333333",
-                        borderwidth=0,
-                        font=('TkDefaultFont',15))
-        
-        style.map('Treeview', background=[('selected', '#777777')])
-
-        style.configure("Treeview.Heading",
-                        background="#1f6aa5",
-                        foreground="white",
-                        relief="flat",
-                        font=('TkDefaultFont',15),
-                        )
-
-        
-        style.map("Treeview.Heading",
-                    background=[('active', '#777777')])
-
-        app.add_menu_display211 = customtkinter.CTkFrame(master=app.commands_frame,
-                                                    corner_radius=15,
-                                                    height=100,
-                                                    width=0)
-        
-        app.add_menu_display211.grid(pady=3, padx=5, sticky="nws")
-
-        columns = ( 'item')
-
-        app.table = ttk.Treeview(master=app.add_menu_display211,
-                        columns=columns,
-                        height=30,
-                        selectmode='browse',
-                        show='headings')
-        
-        app.table.column("#0", anchor="c", minwidth=200, width=250)
-        app.table.column("#1", anchor="c", minwidth=200, width=250)
-
-        app.table.heading('#0', text='test')
-        app.table.heading('#1', text='Commands')
-        
-
-        #Commands_list = ["Home","Delay","End","Loop","IO","JointVelSet","JointAccSet","JointMove","PoseMove","JointVelMove",
-                            #"CartAccSet","CartVelSet","CartLinVelSet","CartAngVelSet","CartMove","CartVelMoveTRF","CartVelMoveWRF"]
-        # Commands
-        Joint_space = app.table.insert(parent = '', index ='end',iid = 0,text="Parent",values="Joint_space")
-        Cart_space = app.table.insert(parent = '', index ='end',iid = 1,text="Parent",values="Cartesian_space")
-        Conditional_statements = app.table.insert(parent = '', index ='end',iid = 2,text="Parent",values="Conditional_stetements")
-        Home = app.table.insert(parent = '', index ='end',iid = 3,text="Parent",values="Home")
-        Delay = app.table.insert(parent = '', index ='end',iid = 4,text="Parent",values="Delay")
-        End = app.table.insert(parent = '', index ='end',iid = 5,text="Parent",values="End")
-        Loop = app.table.insert(parent = '', index ='end',iid = 6,text="Parent",values="Loop")
-        Begin_ = app.table.insert(parent = '', index ='end',iid = 7,text="Parent",values="Begin")
-        Input_var_ = app.table.insert(parent = '', index ='end',iid = 8,text="Parent",values="Input")
-        Output_var_ = app.table.insert(parent = '', index ='end',iid = 9,text="Parent",values="Output")
-        Gripper = app.table.insert(parent = '', index ='end',iid = 10,text="Parent",values="Gripper")
-        Gripper_cal = app.table.insert(parent = '', index ='end',iid = 11,text="Parent",values="Gripper_cal")
-        Get_data = app.table.insert(parent = '', index ='end',iid = 12,text="Parent",values="Get_data")
-        Timeouts = app.table.insert(parent = '', index ='end',iid = 13,text="Parent",values="Timeouts")
-
-        # Joint space commands
-        v1 = app.table.insert(Joint_space, index ='end',iid = 100,open = True, text="Child",values="MoveJoint")
-        v2 = app.table.insert(Joint_space, index ='end',iid = 101,open = True, text="Child",values="MovePose")
-        v3 = app.table.insert(Joint_space, index ='end',iid = 102,open = True, text="Child",values="SpeedJoint")
-
-    
-        # Cart space commands
-        v1 = app.table.insert(Cart_space, index ='end',iid = 110,open = True, text="Child",values="MoveCart")
-        v2 = app.table.insert(Cart_space, index ='end',iid = 120,open = True, text="Child",values="MoveCartRelTRF")
-        v3 = app.table.insert(Cart_space, index ='end',iid = 130,open = True, text="Child",values="SpeedCart")
-
-        # Gripper commands
-
-        app.table.grid(row=2, column=0, sticky='nsew', padx=8, pady=10)
-
-        def select(e):
-            selected = app.table.focus()
-            logging.debug(selected)
-            value = app.table.item(selected,'values')
-            logging.debug(value[0])
-            if value[0] == "Cartesian_space" or value[0] == "Joint_space" or value[0] == "Conditional_stetements":
-                None
-                # Do nothing here because these are the selection menus
-            elif Current_Custom_pose_select == "Current":
-                if value[0] == "MoveJoint":
-                    app.textbox_program.insert(tk.INSERT, str(value[0]) + "(" + Joint1_value + "," + Joint2_value + "," +Joint3_value + "," +
-                                               Joint4_value +"," + Joint5_value +"," + Joint6_value + ")" +"\n")                    
-
-                elif value[0] == "MovePose":
-                    app.textbox_program.insert(tk.INSERT, str(value[0]) + "(" + x_value + "," + y_value + "," +z_value + "," +
-                                               Rx_pos +"," + Ry_pos +"," + Rz_pos + ")" +"\n")   
-
-                elif value[0] == "MoveCart":
-                    app.textbox_program.insert(tk.INSERT, str(value[0]) + "(" + x_value + "," + y_value + "," +z_value + "," +
-                                               Rx_pos +"," + Ry_pos +"," + Rz_pos + ")" +"\n")   
-                    
-                elif value[0] == "MoveCartRelTRF":
-                    app.textbox_program.insert(tk.INSERT, str(value[0]) + "(" + str(0) + "," + str(0) + "," +str(0) + "," +
-                                str(0) +"," + str(0) +"," + str(0) + ")" +"\n")   
-                else:
-                    app.textbox_program.insert(tk.INSERT, str(value[0]) + "()" +"\n")
-          
-            elif Current_Custom_pose_select == "Custom":
-                app.textbox_program.insert(tk.INSERT, str(value[0]) + "()" +"\n")
-
-        app.table.bind('<ButtonRelease-1>', select)
 
 
     def Change_gripper_ID():
@@ -1084,7 +946,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
 
         print(General_data[0])
         
-        
 
     def Clear_error():
         Buttons[3] = 1
@@ -1113,34 +974,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
         Wrf_Trf = "TRF"
         Jog_control[2] = 0
         logging.debug(Wrf_Trf)
-
-    def Current_position():
-        app.select_custom_position.deselect()
-        global Current_Custom_pose_select
-        Current_Custom_pose_select = "Current"
-        logging.debug(Current_Custom_pose_select)
-
-
-    def Custom_position():
-        app.select_current_position.deselect()
-        global Current_Custom_pose_select
-        Current_Custom_pose_select = "Custom"
-        logging.debug(Current_Custom_pose_select)
-
-    # save u neki temp file?
-    def open_txt():
-
-        global Now_open_txt
-        logging.debug("Open txt")
-        logging.debug(Now_open_txt)
-        app.textbox_program.delete('1.0', tk.END)
-        text_file = filedialog.askopenfilename(initialdir = Image_path + "/Programs",title = "open text file", filetypes= (("Text Files",".txt"),))
-        logging.debug(text_file)
-        Now_open_txt = text_file
-        text_file = open(text_file,'r+')
-        temp_var = text_file.read()
-        app.textbox_program.insert(tk.END,temp_var)
-        text_file.close()
 
     def execute_program():
         # When program start button is pressed:
@@ -1173,31 +1006,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
     def stop_program():
         logging.debug("Stop program")
         Buttons[7] = 0
-
-
-    def save_txt():
-        logging.debug("Save txt")
-        global Now_open_txt
-        logging.debug(Now_open_txt)
-        if Now_open_txt != '':
-            #print("done")
-            text_file = open(Now_open_txt,'w+')
-            text_file.write(app.textbox_program.get(1.0,tk.END))
-            text_file.close()
-        else:
-            Now_open_txt = Image_path + "/Programs/execute_script.txt"
-            text_file = open(Now_open_txt,'w+')
-            text_file.write(app.textbox_program.get(1.0,tk.END))
-            text_file.close() 
-        
-    def save_as_txt():
-        logging.debug("Save as txt")
-
-        file_path = filedialog.asksaveasfilename(defaultextension=".txt")
-        if file_path:
-            with open(file_path, "w") as file:
-                content = app.textbox_program.get("1.0", tk.END)
-                file.write(content)
 
     def Select_simulator():
         global Robot_sim
@@ -1349,7 +1157,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
             
             style.map("Treeview.Heading",
                         background=[('active', '#777777')])
-
 
 
     # This function periodically updates elements of the GUI that need to be updated
@@ -1527,7 +1334,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
     robot_positions_frames()
     program_frames()
     response_log_frames()
-    commands_frames()
     cart_jog_frame()
     joint_jog_frames()
     settings_frame()

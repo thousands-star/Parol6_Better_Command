@@ -28,10 +28,10 @@ def Main(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InO
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
     
-    t2 = threading.Thread(target = Serial_sender_good_latest.Task2, args = (shared_string, Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
+    t2 = threading.Thread(target = Serial_sender_good_latest.Receive_data, args = (shared_string, Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,General_data,))
     
-    t3 = threading.Thread(target = Serial_sender_good_latest.Monitor_System,args = ( shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
+    t3 = threading.Thread(target = Serial_sender_good_latest.Monitor_system,args = ( shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))

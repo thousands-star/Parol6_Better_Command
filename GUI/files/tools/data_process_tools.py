@@ -405,8 +405,6 @@ def Pack_data_test():
     #print(test_list)
     return test_list
 
-
-
 # Split data to 3 bytes 
 def Split_2_3_bytes(var_in):
     y = int_to_3_bytes(var_in & 0xFFFFFF) # converts my int value to bytes array
