@@ -23,7 +23,7 @@ def Main(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InO
     Serial_sender_good_latest.ser = ser
     Serial_sender_good_latest.my_os = my_os
 
-    t1 = threading.Thread(target = Serial_sender_good_latest.Task1, args = (shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
+    t1 = threading.Thread(target = Serial_sender_good_latest.Send_data, args = (shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
