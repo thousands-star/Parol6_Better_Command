@@ -14,7 +14,7 @@ image_path = get_image_path()
 def SIMULATOR_process(Position_out,Position_in,Position_Sim,Buttons):
     SIMULATOR_Robot.GUI(Position_out,Position_in,Position_Sim,Buttons)
 
-def Main(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
+def Arm_communication(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,): 
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     
 
     # Process
-    process1 = multiprocessing.Process(target=Main,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
+    process1 = multiprocessing.Process(target=Arm_communication,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,])

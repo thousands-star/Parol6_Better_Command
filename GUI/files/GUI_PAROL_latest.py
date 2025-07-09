@@ -23,7 +23,7 @@ import matplotlib.animation as animation
 #from visual_kinematics.RobotSerial import *
 import numpy as np
 from math import pi
-import PAROL6_ROBOT 
+import GUI.files.tools.PAROL6_ROBOT as PAROL6_ROBOT 
 from datetime import datetime
 import re
 
@@ -1404,5 +1404,3 @@ if __name__ == "__main__":
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons)
-    
-
