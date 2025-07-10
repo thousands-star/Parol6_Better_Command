@@ -4,7 +4,7 @@ import time
 import roboticstoolbox as rp
 import struct
 import logging
-import GUI.files.tools.PAROL6_ROBOT as PAROL6_ROBOT 
+import tools.PAROL6_ROBOT as PAROL6_ROBOT 
 import numpy as np
 from spatialmath import *
 from tools.init_tools import get_my_os, get_image_path

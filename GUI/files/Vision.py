@@ -74,4 +74,66 @@ class CamVisionNode:
             self.latest_tag_poses = tag_poses
 
 if __name__ == "__main__":
-    
+    import numpy as np
+
+    node = CamVisionNode(cam_id=0, width=640, height=480, fps=30)
+    try:
+        node.start()
+        print("[INFO] CamVisionNode started. Press 'q' to quit.")
+        while True:
+            frame = node.latest_rgb            # 最新 BGR 帧
+            if frame is None:
+                time.sleep(0.01)
+                continue
+
+            # 取一份可写副本
+            vis = frame.copy()
+
+            # 把检测结果画出来
+            for tag in node.latest_tag_poses:
+                R, t = tag.R, tag.t            # 旋转矩阵 & 平移向量
+                c = (0, 255, 0)                # 绿色框
+                # pupil-apriltags 的 detection 里会有 corner 坐标
+                # 这里重新跑一次 detect() 取 corner，也可以把 corner 存到 TagPose 里
+                # 为了演示简单，直接用 detector 重新 detect：
+            # --------------------------------------------------
+            # **注意**：下面这一步只是为了拿到 corner，如果你在 _infer_loop
+            #           里把 t.corners 塞进 TagPose，就不用再 detect 一次了
+            # --------------------------------------------------
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                dets = node.tag_detector.detect(gray)
+                for d in dets:
+                    if d.tag_id != tag.id:
+                        continue
+                    corners = d.corners.astype(int)
+                    for i in range(4):
+                        pt1 = tuple(corners[i])
+                        pt2 = tuple(corners[(i + 1) % 4])
+                        cv2.line(vis, pt1, pt2, c, 2)
+
+                    # 在 tag 中心写 ID
+                    center = tuple(d.center.astype(int))
+                    cv2.putText(
+                        vis, f"id:{tag.id}",
+                        center, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2
+                    )
+                    # 距离/姿态简单展示一下 Z 轴位移
+                    z_mm = t[2][0] * 1000     # 假设单位是米 → 毫米
+                    cv2.putText(
+                        vis, f"Z={z_mm:.1f}mm",
+                        (center[0], center[1] + 15),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2
+                    )
+
+            # show
+            cv2.imshow("Apriltag Vision", vis)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("[INFO] Shutting down...")
+        node.stop()
+        cv2.destroyAllWindows()

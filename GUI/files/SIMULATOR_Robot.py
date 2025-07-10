@@ -19,7 +19,7 @@ import matplotlib.animation as animation
 from s_visual_kinematics.RobotSerial import *
 import numpy as np
 from math import pi
-import GUI.files.tools.PAROL6_ROBOT as PAROL6_ROBOT
+import tools.PAROL6_ROBOT as PAROL6_ROBOT
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',

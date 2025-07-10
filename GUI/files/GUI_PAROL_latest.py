@@ -23,7 +23,7 @@ import matplotlib.animation as animation
 #from visual_kinematics.RobotSerial import *
 import numpy as np
 from math import pi
-import GUI.files.tools.PAROL6_ROBOT as PAROL6_ROBOT 
+import tools.PAROL6_ROBOT as PAROL6_ROBOT 
 from datetime import datetime
 import re
 
