@@ -9,7 +9,7 @@ import platform
 from tools.init_tools import get_image_path, get_my_os
 import os
 from tkinter import filedialog
-import PIL
+import cv2
 from PIL import Image, ImageTk
 import logging
 import tkinter as tk
@@ -90,7 +90,7 @@ padx_top_bot = 20
 def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q):
     
     app = customtkinter.CTk()
     shared_string.value = b'PAROL6 commander v1.0'
@@ -814,23 +814,40 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
                 app.textbox_response.tag_add("red", start, end)
                 start = end
 
-
-    # dodaj slikice kao iz meca studio
     def program_frames():
-        #program frame
-        app.program_frame = customtkinter.CTkFrame(app,height = 400, width = 550, corner_radius=0, )
-        app.program_frame.grid(row=1, column=1, columnspan=2, padx=(5,0), pady=5, sticky="nsew")
+        # program frame
+        app.program_frame = customtkinter.CTkFrame(app, height=480, width=640, corner_radius=0)
+        app.program_frame.grid(row=1, column=1, columnspan=2, padx=(5, 0), pady=5, sticky="nsew")
         app.program_frame.grid_columnconfigure(0, weight=1)
         app.program_frame.grid_rowconfigure(1, weight=0)
-        app.program_frame.grid_rowconfigure(1, weight=1)
+        app.program_frame.grid_rowconfigure(2, weight=1)  # 为图像留空间
 
         app.program_label = customtkinter.CTkLabel(app.program_frame, text="Program:", font=customtkinter.CTkFont(size=16))
-        app.program_label.grid(row=0, column=0, padx=(10,10), pady=5, sticky="w")
+        app.program_label.grid(row=0, column=0, padx=(10, 10), pady=5, sticky="w")
 
-        app.textbox_program = customtkinter.CTkTextbox(app.program_frame ,font = customtkinter.CTkFont(size=18, family='TkDefaultFont'))
-        app.textbox_program.grid(row=1, column=0,columnspan=2, padx=(20, 20), pady=(5, 20), sticky="nsew")
+        app.textbox_program = customtkinter.CTkTextbox(app.program_frame, font=customtkinter.CTkFont(size=18, family='TkDefaultFont'))
+        app.textbox_program.grid(row=1, column=0, columnspan=2, padx=(20, 20), pady=(5, 10), sticky="nsew")
 
         app.textbox_program.bind("<KeyRelease>", highlight_words_program)
+
+        # 图像显示区域
+        app.image_label = customtkinter.CTkLabel(app.program_frame, text="")
+        app.image_label.grid(row=2, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="nsew")
+
+        def update_gui_image():
+            if not display_q.empty():
+                frame = display_q.get()
+
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img_pil = Image.fromarray(frame_rgb)
+                img_tk = ImageTk.PhotoImage(img_pil)
+
+                app.image_label.configure(image=img_tk)
+                app.image_label.image = img_tk
+
+            app.after(30, update_gui_image)
+
+        update_gui_image()
 
 
     def start_stop_frame():
@@ -1324,7 +1341,7 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
             app.progress_bar_joints[y].set(np.interp(Position_in[y],[PAROL6_ROBOT.Joint_limits_steps[y][0],PAROL6_ROBOT.Joint_limits_steps[y][1]],[0.0,1.0]))
             None
     
-        app.after(66,Stuff_To_Update) # Update data every 66 ms ( 15 frames per second)
+        app.after(33,Stuff_To_Update) # Update data every 66 ms ( 15 frames per second)
 
 
 
@@ -1350,7 +1367,6 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
     app.mainloop() 
 
 
-    
 
 
 if __name__ == "__main__":
@@ -1397,10 +1413,12 @@ if __name__ == "__main__":
     General_data = [8,3000000]
     # Home,Enable,Disable,Clear error,Real_robot,Sim_robot,Demo app,Program executions,Park
     Buttons = [0,0,0,0,1,1,0,0,0]
+
     
     shared_string = multiprocessing.Array('c', b' ' * 100)
+    display_q = multiprocessing.Queue(maxsize=1)
 
     GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons)
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons, display_q)

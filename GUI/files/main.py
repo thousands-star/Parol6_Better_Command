@@ -43,12 +43,36 @@ def Arm_communication(shared_string,Position_out,Speed_out,Command_out,Affected_
 def GUI_process(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons, DisplayQ):
 
         GUI_PAROL_latest.GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons)
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons, DisplayQ)
+
+def Camera_process(frame_q, display_q):
+    """
+    Start 3 threads:
+    - camera_capture_thread: captures images and puts them into frame_q
+    - tag_detector_thread: detects AprilTags from frame_q
+    - overlay_thread: draws overlays and puts into display_q
+    """
+    from tools.Camera.CameraBase import LogitechCamera
+    from Vision import camera_capture_thread, tag_detector_thread, overlay_thread
+    import threading
+
+    cam = LogitechCamera(source=1, width=640, height=480, fps=30)
+
+    t1 = threading.Thread(target=camera_capture_thread, args=(cam, frame_q), daemon=True)
+    t2 = threading.Thread(target=tag_detector_thread, args=(frame_q,), daemon=True)
+    t3 = threading.Thread(target=overlay_thread, args=(frame_q, display_q), daemon=True)
+
+    print("[Camera Process] Starting threads (capture, detect, overlay)...")
+    t1.start()
+    t2.start()
+    t3.start()
+
+     
 
 if __name__ == '__main__':
 
@@ -112,6 +136,10 @@ if __name__ == '__main__':
 
     shared_string = multiprocessing.Array('c', b' ' * 100)  # Create a character array of size 100
     
+    # Image Queue for camera
+    frame_q = multiprocessing.Queue(maxsize=1)
+    display_q = multiprocessing.Queue(maxsize=1)
+
 
     # Process
     process1 = multiprocessing.Process(target=Arm_communication,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
@@ -122,18 +150,29 @@ if __name__ == '__main__':
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,])
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons, display_q,])
     
     process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Position_out,Position_in,Position_Sim,Buttons])
+
+    process4 = multiprocessing.Process(target=Camera_process, args=(frame_q, display_q))
+    
+
+    
 
     process1.start()
     time.sleep(1)
     process2.start()
     time.sleep(1)
     process3.start()
+    time.sleep(1)
+    process4.start()
+
     process1.join()
     process2.join()
     process3.join()
+    process4.join()
+
     process1.terminate()
     process2.terminate()
     process3.terminate()
+    process4.terminate()
