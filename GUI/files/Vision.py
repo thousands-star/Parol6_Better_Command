@@ -13,15 +13,15 @@ tag_lock = threading.Lock()
 detected_tags = []
 exit_event = threading.Event()
 
-def camera_capture_thread(cam: LogitechCamera, frame_q: queue.Queue, display_q: queue.Queue):
+def camera_capture_thread(cam: LogitechCamera, frame_q: queue.Queue):
     with cam:
         while not exit_event.is_set():
             frame = cam.read()
-            for q in [frame_q, display_q]:
-                if q.full():
-                    q.get()
-                q.put(frame.copy())
+            if frame_q.full():
+                frame_q.get()
+            frame_q.put(frame.copy())  # ✅ 只写入 frame_q，一份数据，多线程消费
             time.sleep(0.02)
+
 
 def tag_detector_thread(frame_q: queue.Queue):
     import numpy as np
@@ -49,18 +49,36 @@ def tag_detector_thread(frame_q: queue.Queue):
         else:
             time.sleep(0.01)
 
-def livefeed_thread(display_q: queue.Queue):
+def overlay_thread(frame_q: queue.Queue, display_q: queue.Queue):
     while not exit_event.is_set():
-        if not display_q.empty():
-            frame = display_q.get()
+        if not frame_q.empty():
+            frame = frame_q.get()
             with tag_lock:
                 for tag in detected_tags:
                     center = (int(tag.center[0]), int(tag.center[1]))
                     cv2.circle(frame, center, 5, (0, 255, 0), -1)
-                    cv2.putText(frame, f"ID:{tag.tag_id}", (center[0]+10, center[1]),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+                    cv2.putText(frame, f"ID:{tag.tag_id}", (center[0] + 10, center[1]),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                     x, y, z = tag.pose_t.flatten()
                     print(f"🧭 Tag ID {tag.tag_id} distance: x={x:.2f}m, y={y:.2f}m, z={z:.2f}m")
+
+            display_frame = frame.copy()  # ✅ Separate clean copy
+            
+            if display_q.full():
+                display_q.get()
+            display_q.put(display_frame)
+        else:
+            time.sleep(0.01)
+
+def livefeed_thread(display_q: queue.Queue):
+    while not exit_event.is_set():
+        
+        if not display_q.empty():
+            frame = display_q.get()
+        else:
+            frame = None
+
+        if frame is not None:
             cv2.imshow("Live Feed", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 exit_event.set()
@@ -69,23 +87,27 @@ def livefeed_thread(display_q: queue.Queue):
             time.sleep(0.01)
     cv2.destroyAllWindows()
 
+
 if __name__ == '__main__':
     cam = LogitechCamera(source=1, width=640, height=480, fps=30)
     frame_q = queue.Queue(maxsize=1)
     display_q = queue.Queue(maxsize=1)
 
-    t_cap = threading.Thread(target=camera_capture_thread, args=(cam, frame_q, display_q), daemon=True)
+    t_cap = threading.Thread(target=camera_capture_thread, args=(cam, frame_q), daemon=True)
     t_det = threading.Thread(target=tag_detector_thread, args=(frame_q,), daemon=True)
+    t_draw = threading.Thread(target=overlay_thread, args=(frame_q, display_q), daemon=True)
     t_show = threading.Thread(target=livefeed_thread, args=(display_q,), daemon=True)
 
-    print("📡 Starting 3-thread pipeline...")
+    print("📡 Starting 4-thread pipeline...")
     t_cap.start()
     t_det.start()
+    t_draw.start()
     t_show.start()
 
     t_show.join()
     exit_event.set()
     t_cap.join()
     t_det.join()
+    t_draw.join()
     print("✅ All threads exited cleanly.")
 
