@@ -1,6 +1,7 @@
 import time
 import multiprocessing
 import threading
+from multiprocessing import Manager
 
 import SIMULATOR_Robot
 from tools.init_tools import init_serial, get_image_path,get_my_os
@@ -43,14 +44,14 @@ def Arm_communication(shared_string,Position_out,Speed_out,Command_out,Affected_
 def GUI_process(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons, DisplayQ):
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q):
 
         GUI_PAROL_latest.GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons, DisplayQ)
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q)
 
-def Camera_process(frame_q, display_q):
+def Camera_process(frame_q, display_q, stop_event):
     """
     Start 3 threads:
     - camera_capture_thread: captures images and puts them into frame_q
@@ -59,18 +60,23 @@ def Camera_process(frame_q, display_q):
     """
     from tools.Camera.CameraBase import LogitechCamera
     from Vision import camera_capture_thread, tag_detector_thread, overlay_thread
-    import threading
+    
+    tag_list = []
+    tag_lock = threading.Lock()
 
     cam = LogitechCamera(source=1, width=640, height=480, fps=30)
 
-    t1 = threading.Thread(target=camera_capture_thread, args=(cam, frame_q), daemon=True)
-    t2 = threading.Thread(target=tag_detector_thread, args=(frame_q,), daemon=True)
-    t3 = threading.Thread(target=overlay_thread, args=(frame_q, display_q), daemon=True)
+    t1 = threading.Thread(target=camera_capture_thread, args=(cam, frame_q,stop_event), daemon=True)
+    t2 = threading.Thread(target=tag_detector_thread, args=(frame_q,tag_list, tag_lock, stop_event), daemon=True)
+    t3 = threading.Thread(target=overlay_thread, args=(frame_q, display_q, tag_list, tag_lock, stop_event), daemon=True)
 
     print("[Camera Process] Starting threads (capture, detect, overlay)...")
     t1.start()
     t2.start()
     t3.start()
+    t1.join()
+    t2.join()
+    t3.join()
 
      
 
@@ -139,6 +145,7 @@ if __name__ == '__main__':
     # Image Queue for camera
     frame_q = multiprocessing.Queue(maxsize=1)
     display_q = multiprocessing.Queue(maxsize=1)
+    stop_event = multiprocessing.Event()
 
 
     # Process
@@ -150,14 +157,13 @@ if __name__ == '__main__':
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons, display_q,])
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q])
     
     process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Position_out,Position_in,Position_Sim,Buttons])
 
-    process4 = multiprocessing.Process(target=Camera_process, args=(frame_q, display_q))
+    process4 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, stop_event])
     
 
-    
 
     process1.start()
     time.sleep(1)
