@@ -1,6 +1,14 @@
 import logging
 import struct
+from typing import List
+from tools.shared_struct import RobotInputData
+from tools.log_tools import nice_print_sections
 
+print("run this")
+logging.basicConfig(level = logging.DEBUG,
+    format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
+    datefmt='%H:%M:%S'
+)
 
 # in big endian machines, first byte of binary representation of the multibyte data-type is stored first. 
 int_to_3_bytes = struct.Struct('>I').pack # BIG endian order
@@ -97,140 +105,81 @@ def Unpack_data_test(data_buffer_list):
 # Gripper data == Position(2byte),speed(2byte),current(2byte),status(byte),obj_detection(byte),ID(byte)
 ## CRC(byte),end1(byte),end2(byte)
 # Last 2 bytes are end bytes but we dont unpack then since we chech their validity elsewhere
-def Unpack_data(data_buffer_list, Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in):
+def Unpack_data(data_buffer_list: List[bytes], shared: RobotInputData):
+    # print("Before packed")
+    # nice_print_sections(shared.to_dict())
+    print(data_buffer_list)
+    
+    # 1) split the first 36 bytes into joint & speed triplets
+    joints = []
+    speeds = []
 
-    Joints = []
-    Speed = []
+    for i in range(0,18,3):
+        joints.append(data_buffer_list[i:i+3])
 
-    for i in range(0,18, 3):
-        variable = data_buffer_list[i:i+3] 
-        Joints.append(variable)
-
-    for i in range(18,36, 3):
-        variable = data_buffer_list[i:i+3]
-        Speed.append(variable)
-
-
+    for i in range(18,36,3):
+        speeds.append(data_buffer_list[i:i+3])
+        
+    # 2) fuse and store into shared.position / shared.speed
     for i in range(6):
-        var =  b'\x00' + b''.join(Joints[i]) 
-        Position_in[i] = Fuse_3_bytes(var)
-        var =  b'\x00' + b''.join(Speed[i]) 
-        Speed_in[i] = Fuse_3_bytes(var)
+        # high-order zero + 3 bytes → 4-byte int
+        p_bytes = b'\x00' + b''.join(joints[i])
+        s_bytes = b'\x00' + b''.join(speeds[i])
+        shared.position[i] = Fuse_3_bytes(p_bytes)
+        shared.speed[i]    = Fuse_3_bytes(s_bytes)
 
-    Homed = data_buffer_list[36]
-    IO_var = data_buffer_list[37]
-    temp_error = data_buffer_list[38]
-    position_error = data_buffer_list[39]
-    timing_data = data_buffer_list[40:42]
-    Timeout_error_var = data_buffer_list[42]
-    xtr2 = data_buffer_list[43]
-    device_ID = data_buffer_list[44]
-    Gripper_position = data_buffer_list[45:47]
-    Gripper_speed = data_buffer_list[47:49]
-    Gripper_current = data_buffer_list[49:51]
-    Status = data_buffer_list[51]
-    object_detection = data_buffer_list[52]
-    CRC_byte = data_buffer_list[53]
-    endy_byte1 = data_buffer_list[54]
-    endy_byte2 = data_buffer_list[55]
+    # 3) single-byte flags & errors
+    homed_byte        = data_buffer_list[36]
+    io_byte           = data_buffer_list[37]
+    temp_err_byte     = data_buffer_list[38]
+    pos_err_byte      = data_buffer_list[39]
+    timeout_byte      = data_buffer_list[42]
+    xtr_byte          = data_buffer_list[43]
 
-    logging.debug("Robot position")
-    logging.debug(Joints)
-    logging.debug("Robot speed")
-    logging.debug(Speed)
-    logging.debug("Robot homed")
-    logging.debug(Homed)
+    # 4) multi-byte timing
+    timing_bytes = data_buffer_list[40:42]
+    t_fused = Fuse_3_bytes(b'\x00\x00' + b''.join(timing_bytes))
+    shared.timing_data.value = t_fused
 
-    temp = Split_2_bitfield(int.from_bytes(Homed,"big"))
-    for i in range(8):
-        Homed_in[i] = temp[i]
+    # 5) bit-field unpacking into 8-element arrays
+    shared.homed[:]             = Split_2_bitfield(int.from_bytes(homed_byte,   "big"))
+    shared.inout[:]             = Split_2_bitfield(int.from_bytes(io_byte,      "big"))
+    shared.temperature_error[:] = Split_2_bitfield(int.from_bytes(temp_err_byte, "big"))
+    shared.position_error[:]    = Split_2_bitfield(int.from_bytes(pos_err_byte,  "big"))
 
-    logging.debug("Robot I/O data")
-    logging.debug(IO_var)
+    # 6) timeout & XTR
+    shared.timeout_error.value = int.from_bytes(timeout_byte, "big")
+    shared.xtr_data.value       = int.from_bytes(xtr_byte,     "big")
 
-    temp = Split_2_bitfield(int.from_bytes(IO_var,"big"))
-    for i in range(8):
-        InOut_in[i] = temp[i]
+    # 7) gripper block
+    device_id       = data_buffer_list[44]
+    grip_pos_bytes  = data_buffer_list[45:47]
+    grip_spd_bytes  = data_buffer_list[47:49]
+    grip_cur_bytes  = data_buffer_list[49:51]
+    status_byte     = data_buffer_list[51]
+    obj_det_byte    = data_buffer_list[52]
 
-    logging.debug("Robot temp error data")
-    logging.debug(temp_error)
+    shared.gripper_data[0] = int.from_bytes(device_id, "big")
+    shared.gripper_data[1] = Fuse_2_bytes(b'\x00\x00' + b''.join(grip_pos_bytes))
+    shared.gripper_data[2] = Fuse_2_bytes(b'\x00\x00' + b''.join(grip_spd_bytes))
+    shared.gripper_data[3] = Fuse_2_bytes(b'\x00\x00' + b''.join(grip_cur_bytes))
+    shared.gripper_data[4] = int.from_bytes(status_byte,  "big")
+    shared.gripper_data[5] = int.from_bytes(obj_det_byte, "big")
 
-    temp = Split_2_bitfield(int.from_bytes(temp_error,"big"))
-    for i in range(8):
-        Temperature_error_in[i] = temp[i]
-
-    logging.debug("Robot position error data")
-    logging.debug(position_error)
-
-    temp = Split_2_bitfield(int.from_bytes(position_error,"big"))
-    for i in range(8):
-        Position_error_in[i] = temp[i]
-
-    logging.debug("Robot timig data")
-    logging.debug(timing_data)
-    logging.debug("Robot timig data fused")
-    var = b'\x00' + b'\x00' + b''.join(timing_data)
-    logging.debug(var)
-    logging.debug("Robot timig data fused 2")
-    var2 = Fuse_3_bytes(var)
-    Timing_data_in.value = var2
-    logging.debug(var2)
-    logging.debug("Timing in ms")
-    logging.debug(var2 * 1.4222222e-6)
-    logging.debug(var2)
-    logging.debug("Robot timig error data")
-    logging.debug(Timeout_error_var)
-
-    Timeout_error.value = int.from_bytes(Timeout_error_var,"big")
-
-    logging.debug("Robot additional byte 2")
-    logging.debug(xtr2)
-
-    XTR_data.value = int.from_bytes(xtr2,"big")
-
-    logging.debug("Gripper device ID")
-    logging.debug(device_ID)
-
-    Gripper_data_in[0] = int.from_bytes(device_ID,"big") 
-
-    logging.debug("Gripper position")
-    logging.debug(Gripper_position)
-
-    var =  b'\x00'+ b'\x00' + b''.join(Gripper_position) 
-    Gripper_data_in[1] = Fuse_2_bytes(var)
-
-    logging.debug("Gripper speed")
-    logging.debug(Gripper_speed)
-
-
-    var =  b'\x00'+ b'\x00' + b''.join(Gripper_speed) 
-    Gripper_data_in[2] = Fuse_2_bytes(var)
-
-    logging.debug("Gripper current")
-    logging.debug(Gripper_current)
-
-
-    var =  b'\x00'+ b'\x00' + b''.join(Gripper_current) 
-    Gripper_data_in[3] = Fuse_2_bytes(var)
-
-    logging.debug("Gripper status")
-    logging.debug(Status)
-
-    Gripper_data_in[4] = int.from_bytes(Status,"big")
-
-    logging.debug("Gripper object detection")
-    logging.debug(object_detection)
-
-    Gripper_data_in[5] = int.from_bytes(object_detection,"big")
-
-    logging.debug("CRC byte")
-    logging.debug(CRC_byte)
-    logging.debug("End byte 1")
-    logging.debug(endy_byte1)
-    logging.debug("End byte 2")
-    logging.debug(endy_byte2)
-  
+    # 8) optional debug logs
+    print("Joint raw bytes:      ", joints)
+    print("Speed raw bytes:      ", speeds)
+    print("Positions:            ", list(shared.position))
+    print("Speeds:               ", list(shared.speed))
+    print("Homed flags:          ", list(shared.homed))
+    print("I/O flags:            ", list(shared.inout))
+    print("Temp errors:          ", list(shared.temperature_error))
+    print("Position errors:      ", list(shared.position_error))
+    print("Timing (raw bytes):   ", timing_bytes)
+    print("Timing (fused):       ", shared.timing_data.value)
+    print("Timeout error:        ", shared.timeout_error.value)
+    print("XTR data:             ", shared.xtr_data.value)
+    print("Gripper data:         ", list(shared.gripper_data))
 # Data we send to the robot
 # Inputs are multiproc arrays and variables
 # Outputs is list of bytes objects? that need to be send by the serial

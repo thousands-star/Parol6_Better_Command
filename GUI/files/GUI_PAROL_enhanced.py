@@ -27,6 +27,7 @@ from math import pi
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
 from datetime import datetime
 import re
+from tools.shared_struct import RobotInputData
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
@@ -89,8 +90,7 @@ robot_pose = [0,0,0,0,0,0] #np.array([0,0,0,0,0,0])
 padx_top_bot = 20
 
 def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
+        robot_data: RobotInputData,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q):
     
     app = customtkinter.CTk()
@@ -106,6 +106,10 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
     if my_os == "Windows":
         logo = (os.path.join(Image_path, "logo.ico"))
         app.iconbitmap(logo)
+    
+    Position_in = robot_data.position
+    InOut_in = robot_data.inout
+    Gripper_data_in = robot_data.gripper_data
 
 
     # configure grid layout (4x4) wight 0 znači da je fixed, 1 znači da scale radi?
@@ -1353,21 +1357,8 @@ if __name__ == "__main__":
     Gripper_data_out = [1,1,1,1,1,0]
 
     # Data sent from robot to PC
-    Position_in = [31,32,33,34,35,36]
-    Speed_in = [41,42,43,44,45,46]
-    Homed_in = [1,1,1,1,1,1,1,1]
-    InOut_in = [1,1,1,1,1,1,1,1]
-    Temperature_error_in = [1,1,1,1,1,1,1,1]
-    Position_error_in = [1,1,1,1,1,1,1,1]
-    Timeout_error = 123
-    # how much time passed between 2 sent commands (2byte value, last 2 digits are decimal so max value is 655.35ms?)
-    Timing_data_in = 123
-    XTR_data =   123
-
-    # Data we get from the gripper
-    #ID,Position,speed,current,status,obj_detection
-    # From this data we will use: position, current, status 
-    Gripper_data_in = [110,120,130,140,150,160]
+    robot_data = RobotInputData()
+    robot_data.initialize()
 
     # GUI control data
     Joint_jog_buttons = [0,0,0,0,0,0,0,0,0,0,0,0]
@@ -1380,11 +1371,11 @@ if __name__ == "__main__":
     Buttons = [0,0,0,0,1,1,0,0,0]
     
     shared_string = multiprocessing.Array('c', b' ' * 100)
+    display_q = multiprocessing.Queue(maxsize=1)
 
 
 
 
     GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
+         robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q)

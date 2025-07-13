@@ -10,6 +10,7 @@ from spatialmath import *
 from tools.init_tools import get_my_os, get_image_path
 from tools.log_tools import nice_print_sections
 from tools.data_process_tools import *
+from multiprocessing import Value, Array
 
 import re
 import math
@@ -90,10 +91,22 @@ Program_step = 0
 
 Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
-def Send_data(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
+def Send_data(
+    shared_string:       Array,             # multiprocessing.Array('c', …)
+    Position_out:        Array,             # multiprocessing.Array("i", [..])
+    Speed_out:           Array,             # multiprocessing.Array("i", [..])
+    Command_out:         Value,             # multiprocessing.Value('i', ..)
+    Affected_joint_out:  Array,             # multiprocessing.Array("i", [..])
+    InOut_out:           Array,             # multiprocessing.Array("i", [..])
+    Timeout_out:         Value,             # multiprocessing.Value('i', ..)
+    Gripper_data_out:    Array,             # multiprocessing.Array("i", [..])
+    Robot_data:           RobotInputData,    # your dataclass for all incoming arrays/values
+    Joint_jog_buttons:   Array,             # multiprocessing.Array("i", [..])
+    Cart_jog_buttons:    Array,             # multiprocessing.Array("i", [..])
+    Jog_control:         Array,             # multiprocessing.Array("i", [..])
+    General_data:        Array,             # multiprocessing.Array("i", [port, baud])
+    Buttons:             Array,             # multiprocessing.Array("i", [..])
+) -> None:
     timer = Timer(INTERVAL_S, warnings=False, precise=True)
     cnt = 0
 
@@ -127,6 +140,8 @@ def Send_data(shared_string,Position_out,Speed_out,Command_out,Affected_joint_ou
 
             ######################################################
             ######################################################
+            InOut_in = Robot_data.inout
+            Position_in = Robot_data.position
 
             
             # JOINT JOG (regular speed control) 0x123 # -1 is value if nothing is pressed
@@ -428,71 +443,36 @@ def dummy_data(Position_out,Speed_out,Command_out,Position_in):
         Position_out[i] = Position_in[i]
         Speed_out[i] = 0
 
-def extract_content_from_command(command):
-    match = re.search(r'\((.*?)\)', command)
-    if match:
-        return match.group(1)
-    else:
-        return None
 
-# Task that receives data and saves to the multi proc array
-def Receive_data(shared_string,Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,General_data):
-    while 1:
 
-        # 🐍 PYTHON Serial Explanation
-        # inWaiting() tells how many bytes are currently available in the serial input buffer.
-        # Since we continuously send serial data, there will usually be something in the buffer.
-        # That's why we often call ser.read(ser.inWaiting()) to read all available bytes at once.
-        # If the data is arriving too slowly, the buffer might be empty (inWaiting == 0),
-        # and the program simply skips reading and continues to the next loop.
-        # It checks again on the next loop iteration and reads if data has arrived.
 
-        # Reference:
-        # https://pyserial.readthedocs.io/en/latest/pyserial_api.html#serial.Serial.in_waiting
-        # https://stackoverflow.com/questions/17553543/pyserial-non-blocking-read-loop
-
-        # 🛠️ ARDUINO Serial Explanation
-        # Serial.available() tells how many bytes are available in the buffer.
-        # Serial.read() only reads ONE byte at a time, so you need to use a while(Serial.available()) loop
-        # and manually accumulate the bytes into a buffer.
-        # When a specific character (like '\n') is received, or when the buffer reaches a certain length,
-        # you parse the buffer and check its validity.
-        # Just like in Python, if data is too slow to arrive, Serial.available() may return 0,
-        # even if you're inside a while loop — it simply skips until new data comes in.
-        # If you were using an if() instead of while(), you'd only read one byte per loop,
-        # and if the rest of your code is slow, you might receive serial data too slowly or miss bytes.
-
-        # Reference:
-        # https://forum.arduino.cc/t/sending-command-over-serial-64-bytes-128-bytes/121598/3
-        # https://github.com/stm32duino/Arduino_Core_STM32/wiki/HardwareTimer-library
-        # http://www.gammon.com.au/serial
+def Receive_data(Robot_data: RobotInputData, general_data: list):
+    """
+    Continuously read packets into `shared` via get_data(shared).
+    On any read error, attempt to reconnect serial using general_data[0].
+    """
+    while True:
         try:
-            Get_data(Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in)
-            #Get_data_old()
-        except:
-            try: 
-                
+            # blocks until one full packet is processed into `shared`
+            Get_data(Robot_data)
+        except Exception as read_err:
+            logging.debug("Read error: %s", read_err)
+            # attempt to reconnect
+            try:
+                idx = general_data[0]
                 if my_os == 'Linux':
-                    com_port = '/dev/ttyACM' + str(General_data[0])
-                elif my_os == 'Windows':
-                    com_port = 'COM' + str(General_data[0])
-                    
-                
-                print(com_port)
+                    com_port = f'/dev/ttyACM{idx}'
+                else:
+                    com_port = f'COM{idx}'
+                logging.info("Reconnecting on port %s...", com_port)
                 ser.port = com_port
-                ser.baudrate = 3000000
                 ser.close()
                 time.sleep(0.5)
                 ser.open()
                 time.sleep(0.5)
-            except:
+            except Exception as conn_err:
+                logging.debug("Reconnect failed: %s", conn_err)
                 time.sleep(0.5)
-                logging.debug("no serial available, reconnecting!")                    
-        #Get_data_old()
-        #print("Task 2 alive")
-        #time.sleep(2)
 
 
 # Treba mi bytes format za slanje, nije baš user readable je pretvori iz hex u ascii
@@ -505,166 +485,65 @@ def Receive_data(shared_string,Position_in,Speed_in,Homed_in,InOut_in,Temperatur
 
 # Dummy test task
 # Best used to show data that we get from the robot and data we get from GUI
-def Monitor_system(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
-    while(1):
-        # Construct dictionaries for printing.
-        packet_info = {
-            "start_bytes_list":      [0xff,0xff,0xff],
-            "start_bytes_bytes":     bytes([0xff,0xff,0xff]),
-            "Test Split Two Bytes":       Split_2_bitfield(123),
-            "Test Split Three Bytes":  Split_2_3_bytes(-235005),
-            "Test Fusing Three Bytes":            Fuse_3_bytes(Split_2_3_bytes(-235005)),
-            "Test Fusing Two Bytes":    Fuse_bitfield_2_bytearray(Split_2_bitfield(123)),
-        }
-        
-        # The test is not clever enough to self validate, enhance this in future.
-        # test_list = [10]*50
-        # elements = list(range(60))
-        # Unpack_data_test(elements)
-        # print("$$$$$$$$$$$$$$$$")
-        # Pack_data_test()
-    	
-        robot_data = {
-            "Position":     Position_in[:],
-            "Speed":        Speed_in[:],
-            "Homed":        Homed_in[:],
-            "I/O status":   InOut_in[:],
-            "Temp error":   Temperature_error_in[:],
-            "Pos error":    Position_error_in[:],
-            "Timeout err":  Timeout_error.value,
-            "Δt raw":       Timing_data_in.value,
-            "Δt (ms)":      f"{Timing_data_in.value*1.42222222e-6:.3f}",
-            "XTR byte":     XTR_data.value,
-            "Grip ID":      Gripper_data_in[0],
-            "Grip pos":     Gripper_data_in[1],
-            "Grip spd":     Gripper_data_in[2],
-            "Grip cur":     Gripper_data_in[3],
-            "Grip stat":    Gripper_data_in[4],
-            "Obj detect":   Gripper_data_in[5],
+def Monitor_system(
+    shared_string:       Array,            # e.g. Array('c', …)
+    Position_out:        Array,            # outgoing positions
+    Speed_out:           Array,
+    Command_out:         Value,
+    Affected_joint_out:  Array,
+    InOut_out:           Array,
+    Timeout_out:         Value,
+    Gripper_data_out:    Array,
+    Robot_data:              RobotInputData,   # all incoming data wrapped here
+    Joint_jog_buttons:   Array,             # multiprocessing.Array("i", [..])
+    Cart_jog_buttons:    Array,             # multiprocessing.Array("i", [..])
+    Jog_control:         Array,             # multiprocessing.Array("i", [..])
+    General_data:        Array,             # multiprocessing.Array("i", [port, baud])
+    Buttons:             Array,             # multiprocessing.Array("i", [..])
+) -> None:
+    while True:
+        # 1) Print robot inputs
+        robot_data = Robot_data.to_dict()
+
+        # 2) Print commanded outputs
+        commanded = {
+            "I/O out":    list(InOut_out),
+            "Command":    Command_out.value,
+            "Speed out":  list(Speed_out),
         }
 
-        commanded_data = {
-            "I/O out":      InOut_out[:],
-            "Command":      Command_out.value,
-            "Speed out":    Speed_out[:],
+        # 3) Print GUI state
+        gui = {
+            "Joint jog":  list(Joint_jog_buttons),
+            "Cart jog":   list(Cart_jog_buttons),
+            "Home":       Buttons[0],
+            "Enable":     Buttons[1],
+            "Disable":    Buttons[2],
+            "Clear err":  Buttons[3],
+            "Real/Sim":   f"{Buttons[4]}/{Buttons[5]}",
+            "Speed sl":   Jog_control[0],
+            "WRF/TRF":    Jog_control[2],
+            "Demo":       Buttons[6],
+            "Execute":    Buttons[7],
+            "Park":       Buttons[8],
+            "Log msg":    shared_string.value.decode().strip(),
         }
 
-        gui_data = {
-            "Joint jog":    list(Joint_jog_buttons),
-            "Cart jog":     list(Cart_jog_buttons),
-            "Home btn":     Buttons[0],
-            "Enable btn":   Buttons[1],
-            "Disable btn":  Buttons[2],
-            "Clear err":    Buttons[3],
-            "Real/Sim":     f"{Buttons[4]}/{Buttons[5]}",
-            "Speed slider": Jog_control[0],
-            "WRF/TRF":      Jog_control[2],
-            "Demo app":     Buttons[6],
-            "Exec state":   Buttons[7],
-            "Park btn":     Buttons[8],
-            "Shared str":   shared_string.value.decode().strip(),
-        }
-
-        # Print the data at once.
+        # 4) Print everything in one go
         nice_print_sections({
-            #"Packet Info":     packet_info,
             "Robot Data":      robot_data,
-            "Commanded Data":  commanded_data,
-            "GUI Data":        gui_data,
+            "Commanded Data":  commanded,
+            "GUI State":       gui,
         })
 
         time.sleep(3)
 
 
-# Just read data and print it
-def Get_data_old():
-    while (ser.inWaiting() > 0):
-        data_str = ser.read(ser.inWaiting()) #.decode('utf-8') 
-        print(data_str)
-        print("\\+\\") 
-        time.sleep(0.01)    
-
-
-
-    # Len is defined by all bytes EXCEPT start bytes and len
-    # Start bytes = 3
-    len = 52 #1
-    Position = [255,255,255,255,255,255]  #18
-    Speed = [255,255,255,255,255,255]  #18
-    Command = 123 #1 
-    Affected_joint = [1,1,1,1,1,1,1,1] #1
-    InOut = [0,0,0,0,0,0,0,0] #1
-    Timeout = 247 #1
-    Gripper_data = [-222,-223,-224,225,226,123]  #9
-    CRC_byte = 228 #1
-    # End bytes = 2
-
-
-    test_list = []
-    #print(test_list)
-
-    #x = bytes(start_bytes)
-    test_list.append((start_bytes))
-    
-    test_list.append(bytes([len]))
-
-    # Position data
-    for i in range(6):
-        position_split = Split_2_3_bytes(Position[i])
-        test_list.append(position_split[1:4])
-
-    # Speed data
-    for i in range(6):
-        speed_split = Split_2_3_bytes(Speed[i])
-        test_list.append(speed_split[1:4])
-
-    # Command data
-    test_list.append(bytes([Command]))
-
-    # Affected joint data
-    Affected_list = Fuse_bitfield_2_bytearray(Affected_joint)
-    test_list.append(Affected_list)
-
-    # Inputs outputs data
-    InOut_list = Fuse_bitfield_2_bytearray(InOut)
-    test_list.append(InOut_list)
-
-    # Timeout data
-    test_list.append(bytes([Timeout]))
-
-    # Gripper position
-    Gripper_position = Split_2_3_bytes(Gripper_data[0])
-    test_list.append(Gripper_position[2:4])
-
-    # Gripper speed
-    Gripper_speed = Split_2_3_bytes(Gripper_data[1])
-    test_list.append(Gripper_speed[2:4])
-
-    # Gripper current
-    Gripper_current = Split_2_3_bytes(Gripper_data[2])
-    test_list.append(Gripper_current[2:4])  
-
-    # Gripper command
-    test_list.append(bytes([Gripper_data[3]]))
-    # Gripper mode
-    test_list.append(bytes([Gripper_data[4]]))
-    # Gripper ID
-    test_list.append(bytes([Gripper_data[5]]))
- 
-    # CRC byte
-    test_list.append(bytes([CRC_byte]))
-
-    # END bytes
-    test_list.append((end_bytes))
-    
-    #print(test_list)
-    return test_list
-
-def Get_data(Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in):
+def Get_data(shared: RobotInputData):
+    """
+    Read from serial until a full, well-framed packet arrives,
+    then unpack its payload into `shared`.
+    """
     global input_byte 
 
     global start_cond1_byte 
@@ -738,8 +617,7 @@ def Get_data(Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Positio
 
                     logging.debug("GOOD END CONDITION PC")
                     logging.debug("I UNPACKED RAW DATA RECEIVED FROM THE ROBOT")
-                    Unpack_data(data_buffer, Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-                    XTR_data,Gripper_data_in)
+                    Unpack_data(data_buffer, shared)
                     logging.debug("DATA UNPACK FINISHED")
                     # ako su dobri izračunaj crc
                     # if crc dobar raspakiraj podatke
