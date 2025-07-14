@@ -20,7 +20,7 @@ from s_visual_kinematics.RobotSerial import *
 import numpy as np
 from math import pi
 import tools.PAROL6_ROBOT as PAROL6_ROBOT
-from tools.shared_struct import RobotInputData
+from tools.shared_struct import RobotInputData, RobotOutputData
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
@@ -40,7 +40,7 @@ customtkinter.set_appearance_mode("Dark")  # Modes: "System" (standard), "Dark",
 customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
 
 
-def GUI(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons):
+def GUI(Command_data: RobotOutputData,Robot_data:RobotInputData,Position_Sim,Buttons):
     Position_in = Robot_data.position
     def show_robot(var):
         #print(var)

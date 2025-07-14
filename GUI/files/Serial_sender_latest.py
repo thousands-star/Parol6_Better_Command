@@ -93,13 +93,7 @@ Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
 def Send_data(
     shared_string:       Array,             # multiprocessing.Array('c', …)
-    Position_out:        Array,             # multiprocessing.Array("i", [..])
-    Speed_out:           Array,             # multiprocessing.Array("i", [..])
-    Command_out:         Value,             # multiprocessing.Value('i', ..)
-    Affected_joint_out:  Array,             # multiprocessing.Array("i", [..])
-    InOut_out:           Array,             # multiprocessing.Array("i", [..])
-    Timeout_out:         Value,             # multiprocessing.Value('i', ..)
-    Gripper_data_out:    Array,             # multiprocessing.Array("i", [..])
+    Command_data:         RobotOutputData,
     Robot_data:           RobotInputData,    # your dataclass for all incoming arrays/values
     Joint_jog_buttons:   Array,             # multiprocessing.Array("i", [..])
     Cart_jog_buttons:    Array,             # multiprocessing.Array("i", [..])
@@ -117,11 +111,11 @@ def Send_data(
             logging.debug("Data that PC will send to the robot is: ")
             #s = Pack_data_test() 
             # This function packs data that we will send to the robot
-            s = Pack_data(Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out)
+            s = Pack_data_enhanced(Command_data)
             
             # Make sure if sending calib to gripper to send it only once
-            if(Gripper_data_out[4] == 1 or Gripper_data_out[4] == 2):
-                Gripper_data_out[4] = 0
+            if(Command_data.gripper_data[4] == 1 or Command_data.gripper_data[4] == 2):
+                Command_data.gripper_data[4] = 0
 
             logging.debug(s)
             logging.debug("END of data sent to the ROBOT")
@@ -147,24 +141,24 @@ def Send_data(
             # JOINT JOG (regular speed control) 0x123 # -1 is value if nothing is pressed
             if result_joint_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1: 
                 Robot_mode = "Joint jog"
-                Command_out.value = 123 
+                Command_data.command.value = 123 
                 # Set speed for all other joints to 0
                 for i in range(6):
-                    Speed_out[i] = 0
+                    Command_data.speed[i] = 0
                     # ako je position in veći ili jednak nekom od limita disable tu stranu tipki
                 # Set speed for the clicked joint
                 if(result_joint_jog in [0,1,2,3,4,5]):
                     if Position_in[result_joint_jog] >= PAROL6_ROBOT.Joint_limits_steps[result_joint_jog][1]:
                         shared_string.value = b'Error: Robot jog -> Position out of range' 
                     else:
-                        Speed_out[result_joint_jog ] =  int(np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog]]))
+                        Command_data.speed[result_joint_jog ] =  int(np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog]]))
                         arr = bytes(str(result_joint_jog + 1), 'utf-8')
                         shared_string.value = b'Log: Joint  ' + arr +   b'  jog  ' 
                 else:
                     if Position_in[result_joint_jog-6] <= PAROL6_ROBOT.Joint_limits_steps[result_joint_jog-6][0]:
                         shared_string.value = b'Error: Robot jog -> Position out of range'
                     else:  
-                        Speed_out[result_joint_jog - 6] =  int(-1 * np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog-6],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog-6]]))
+                        Command_data.speed[result_joint_jog - 6] =  int(-1 * np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog-6],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog-6]]))
                         arr = bytes(str(result_joint_jog - 6 + 1), 'utf-8')
                         shared_string.value = b'Log: Joint  ' + arr +   b'  jog  ' 
 
@@ -174,10 +168,10 @@ def Send_data(
             # CART JOG (regular speed control but for multiple joints) 0x123 # -1 is value if nothing is pressed
             elif result_cart_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1: #
 
-                Command_out.value = 123
+                Command_data.command.value = 123
                 # Set speed for all other joints to 0
                 for i in range(6):
-                    Speed_out[i] = 0
+                    Command_data.speed[i] = 0
                 # if moving in positive direction
                 q1 = np.array([PAROL6_ROBOT.STEPS2RADS(Position_in[0],0),
                                 PAROL6_ROBOT.STEPS2RADS(Position_in[1],1),
@@ -335,8 +329,8 @@ def Send_data(
 
                     # If solver gives error DISABLE ROBOT
                     if var.success:
-                        Speed_out[i] = int(PAROL6_ROBOT.SPEED_RAD2STEP(temp_var[i],i))
-                        prev_speed[i] = Speed_out[i]
+                        Command_data.speed[i] = int(PAROL6_ROBOT.SPEED_RAD2STEP(temp_var[i],i))
+                        prev_speed[i] = Command_data.speed[i]
                     else:
                         shared_string.value = b'Error: Inverse kinematics error '
                         #Command_out.value = 102
@@ -346,9 +340,9 @@ def Send_data(
 
                 if Robot_mode != "Cartesian jog":
                     for i in range(6):
-                        if abs(Speed_out[i]) >= 300000:
-                            Speed_out[i] = int(Speed_out[i] / 10000)
-                            arr = bytes(str(Speed_out[i]), 'utf-8')
+                        if abs(Command_data.speed[i]) >= 300000:
+                            Command_data.speed[i] = int(Command_data.speed[i] / 10000)
+                            arr = bytes(str(Command_data.speed[i]), 'utf-8')
                             arr2 = bytes(str(i+1),'utf-8')
                             shared_string.value = b'Error: Joint  ' + arr2  +   b'  speed error in cart mode  '+ arr
 
@@ -356,9 +350,9 @@ def Send_data(
                 else:
                     # If any joint starts moving faster than allowed DISABLE ROBOT
                     for i in range(6):
-                        if abs(Speed_out[i]) >= 300000:
-                            Command_out.value = 102
-                            arr = bytes(str(Speed_out[i]), 'utf-8')
+                        if abs(Command_data.speed[i]) >= 300000:
+                            Command_data.command.value = 102
+                            arr = bytes(str(Command_data.speed[i]), 'utf-8')
                             arr2 = bytes(str(i+1),'utf-8')
                             shared_string.value = b'Error: Joint  ' + arr2  +   b'  speed error in cart mode  '+ arr
                 Robot_mode = "Cartesian jog"
@@ -375,30 +369,30 @@ def Send_data(
           
 
             elif Buttons[0] == 1: # HOME COMMAND 0x100
-                Command_out.value = 100
+                Command_data.command.value = 100
                 Buttons[0] = 0
                 shared_string.value = b'Log: Robot homing'
 
             
             elif Buttons[1] == 1: # ENABLE COMMAND 0x101
-                Command_out.value = 101 
+                Command_data.command.value = 101 
                 Buttons[1] = 0
                 shared_string.value = b'Log: Robot enable'
 
             elif Buttons[2] == 1 or InOut_in[4] == 0: # DISABLE COMMAND 0x102
                 Robot_mode = "STOP"
                 Buttons[7] = 0 # program execution button
-                Command_out.value = 102
+                Command_data.command.value = 102
                 Buttons[2] = 0
                 shared_string.value = b'Log: Robot disable; button or estop'
 
             elif Buttons[3] == 1: # CLEAR ERROR COMMAND 0x103
-                Command_out.value = 103
+                Command_data.command.value = 103
                 Buttons[3] = 0
                 shared_string.value = b'Log: Error clear'
 
             elif Buttons[6] == 1: # For testing accel motions?
-                Command_out.value = 69
+                Command_data.command.value = 69
             
 
             # Program execution
@@ -409,7 +403,7 @@ def Send_data(
             ######################################################
             else: # If nothing else is done send dummy data 0x255
                 Robot_mode = "Dummy"
-                dummy_data(Position_out,Speed_out,Command_out,Position_in)
+                dummy_data(Command_data.position,Command_data.speed,Command_data.command,Position_in)
 
             # Provjere 
             # Svaka move funkciaj će imati svoje provjere!
@@ -487,13 +481,7 @@ def Receive_data(Robot_data: RobotInputData, general_data: list):
 # Best used to show data that we get from the robot and data we get from GUI
 def Monitor_system(
     shared_string:       Array,            # e.g. Array('c', …)
-    Position_out:        Array,            # outgoing positions
-    Speed_out:           Array,
-    Command_out:         Value,
-    Affected_joint_out:  Array,
-    InOut_out:           Array,
-    Timeout_out:         Value,
-    Gripper_data_out:    Array,
+    Command_data:            RobotOutputData,
     Robot_data:              RobotInputData,   # all incoming data wrapped here
     Joint_jog_buttons:   Array,             # multiprocessing.Array("i", [..])
     Cart_jog_buttons:    Array,             # multiprocessing.Array("i", [..])
@@ -506,11 +494,7 @@ def Monitor_system(
         robot_data = Robot_data.to_dict()
 
         # 2) Print commanded outputs
-        commanded = {
-            "I/O out":    list(InOut_out),
-            "Command":    Command_out.value,
-            "Speed out":  list(Speed_out),
-        }
+        command_data = Command_data.to_dict()
 
         # 3) Print GUI state
         gui = {
@@ -532,7 +516,7 @@ def Monitor_system(
         # 4) Print everything in one go
         nice_print_sections({
             "Robot Data":      robot_data,
-            "Commanded Data":  commanded,
+            "Commanded Data":  command_data,
             "GUI State":       gui,
         })
 

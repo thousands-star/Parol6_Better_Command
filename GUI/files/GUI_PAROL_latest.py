@@ -27,7 +27,7 @@ from math import pi
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
 from datetime import datetime
 import re
-from tools.shared_struct import RobotInputData
+from tools.shared_struct import RobotInputData, RobotOutputData
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
@@ -89,8 +89,7 @@ robot_pose = [0,0,0,0,0,0] #np.array([0,0,0,0,0,0])
 
 padx_top_bot = 20
 
-def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-        robot_data: RobotInputData,
+def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q):
     
     app = customtkinter.CTk()
@@ -110,6 +109,8 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
     Position_in = robot_data.position
     InOut_in = robot_data.inout
     Gripper_data_in = robot_data.gripper_data
+    InOut_out = command_data.inout
+    Gripper_data_out = command_data.gripper_data
 
 
     # configure grid layout (4x4) wight 0 znači da je fixed, 1 znači da scale radi?

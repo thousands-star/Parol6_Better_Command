@@ -4,48 +4,45 @@ import threading
 
 import SIMULATOR_Robot
 from tools.init_tools import init_serial, get_image_path,get_my_os
-import Serial_sender_enhanced
-import GUI_PAROL_enhanced
-from tools.shared_struct import RobotInputData
+import Serial_sender_latest
+import GUI_PAROL_latest
+from tools.shared_struct import RobotInputData, RobotOutputData
 
 ser, STARTING_PORT = init_serial()
 my_os = get_my_os()
 image_path = get_image_path()
 
-def SIMULATOR_process(Position_out,Position_in,Position_Sim,Buttons):
-    SIMULATOR_Robot.GUI(Position_out,Position_in,Position_Sim,Buttons)
+def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons):
+    SIMULATOR_Robot.GUI(Position_out,Robot_data,Position_Sim,Buttons)
 
-def Arm_communication(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Robot_data:RobotInputData,
+def Arm_communication(shared_string,
+        Command_data:RobotOutputData, 
+        Robot_data:RobotInputData,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,): 
 
     global ser, my_os
-    Serial_sender_enhanced.ser = ser
-    Serial_sender_enhanced.my_os = my_os
+    Serial_sender_latest.ser = ser
+    Serial_sender_latest.my_os = my_os
 
     print(Robot_data.to_dict())
 
-    t1 = threading.Thread(target = Serial_sender_enhanced.Send_data, args = (shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Robot_data,
+    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
     
-    t2 = threading.Thread(target = Serial_sender_enhanced.Receive_data, args = (shared_string, Robot_data,))
+    t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (shared_string,Robot_data,))
     
-    t3 = threading.Thread(target = Serial_sender_enhanced.Monitor_system,args = ( shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Robot_data,
+    t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = ( shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
-
 
     t1.start()
     t2.start()
     t3.start()
 
-def GUI_process(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         RobotData:RobotInputData,
+def GUI_process(shared_string,Command_data:RobotOutputData,
+         Robot_data:RobotInputData,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q):
 
-        GUI_PAROL_enhanced.GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         RobotData,
+        GUI_PAROL_latest.GUI(shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q)
 
 def Camera_process(frame_q, display_q, stop_event):
@@ -88,17 +85,16 @@ if __name__ == '__main__':
         None
 
     # Data sent by the PC to the robot
-    Position_out = multiprocessing.Array("i",[1,11,111,1111,11111,10], lock=False) 
-
-    Speed_out = multiprocessing.Array("i",[2,21,22,23,24,25], lock=True)
-
-
-    Command_out = multiprocessing.Value('i',0) 
-    Affected_joint_out = multiprocessing.Array("i",[1,1,1,1,1,1,1,1], lock=False) 
-    InOut_out = multiprocessing.Array("i",[0,0,0,0,0,0,0,0], lock=False) #IN1,IN2,OUT1,OUT2,ESTOP
-    Timeout_out = multiprocessing.Value('i',0) 
-    #Positon,speed,current,command,mode,ID
-    Gripper_data_out = multiprocessing.Array("i",[1,1,1,1,0,0], lock=False)
+    Command_data = RobotOutputData()
+    Command_data.initialize(
+        position_init=[1, 11, 111, 1111, 11111, 10],
+        speed_init=[2, 21, 22, 23, 24, 25],
+        affected_joint_init=[1, 1, 1, 1, 1, 1, 1, 1],
+        inout_init=[0, 0, 0, 0, 0, 0, 0, 0],
+        gripper_init=[1, 1, 1, 1, 0, 0],
+        command_init=0,
+        timeout_init=0
+    )
 
     # Data sent from robot to PC. This is the initialization that would work according to the protocol. 
     Robot_data = RobotInputData()
@@ -143,19 +139,16 @@ if __name__ == '__main__':
 
 
     # Process
-    process1 = multiprocessing.Process(target=Arm_communication,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Robot_data,
+    process1 = multiprocessing.Process(target=Arm_communication,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,])
     
-    process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Robot_data,
+    process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q])
     
-    process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Position_out,Robot_data,Position_Sim,Buttons])
+    process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Command_data,Robot_data,Position_Sim,Buttons])
 
     process4 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, stop_event])
     
-
 
     process1.start()
     time.sleep(1)

@@ -1,7 +1,7 @@
 import logging
 import struct
 from typing import List
-from tools.shared_struct import RobotInputData
+from tools.shared_struct import RobotInputData, RobotOutputData
 from tools.log_tools import nice_print_sections
 
 print("run this")
@@ -23,13 +23,6 @@ end_bytes =  [0x01,0x02]
 end_bytes = bytes(end_bytes)
 
 
-# Data that we receive from the robot
-#Input is data buffer list
-#Output is saved to multiproc arrays and variables
-## joints(3byte)x6,speed(3byte)x6,homed(byte),I/O(byte),temp_error(byte),position_error(byte),timing_data(2byte),Timeout_error(byte),xtr2(byte)
-# Gripper data == Position(2byte),speed(2byte),current(2byte),status(byte),obj_detection(byte),ID(byte)
-## CRC(byte),end1(byte),end2(byte)
-# Last 2 bytes are end bytes but we dont unpack then since we chech their validity elsewhere
 def Unpack_data_test(data_buffer_list):
 
     Joints = []
@@ -108,7 +101,7 @@ def Unpack_data_test(data_buffer_list):
 def Unpack_data(data_buffer_list: List[bytes], shared: RobotInputData):
     # print("Before packed")
     # nice_print_sections(shared.to_dict())
-    print(data_buffer_list)
+    # print(data_buffer_list)
     
     # 1) split the first 36 bytes into joint & speed triplets
     joints = []
@@ -180,6 +173,7 @@ def Unpack_data(data_buffer_list: List[bytes], shared: RobotInputData):
     print("Timeout error:        ", shared.timeout_error.value)
     print("XTR data:             ", shared.xtr_data.value)
     print("Gripper data:         ", list(shared.gripper_data))
+
 # Data we send to the robot
 # Inputs are multiproc arrays and variables
 # Outputs is list of bytes objects? that need to be send by the serial
@@ -274,6 +268,62 @@ def Pack_data(Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Ti
     test_list.append((end_bytes))
     
     #print(test_list)
+    return test_list
+
+def Pack_data_enhanced(command_data: RobotOutputData) -> List[bytes]:
+    """Packs RobotOutputData into a list of byte segments to send over serial."""
+    CRC_byte = 228
+    length_byte = 52  # Excludes start bytes and this length byte
+
+    test_list = []
+    test_list.append(start_bytes)  # Start bytes
+    test_list.append(bytes([length_byte]))
+
+    # Position data (each packed into 3 bytes)
+    for i in range(6):
+        position_split = Split_2_3_bytes(command_data.position[i])
+        test_list.append(position_split[1:4])
+
+    # Speed data
+    for i in range(6):
+        speed_split = Split_2_3_bytes(command_data.speed[i])
+        test_list.append(speed_split[1:4])
+
+    # Command byte
+    test_list.append(bytes([command_data.command.value]))
+
+    # Affected joints (bitfield into 1 byte)
+    affected_joint_bytes = Fuse_bitfield_2_bytearray(command_data.affected_joint[:])
+    test_list.append(affected_joint_bytes)
+
+    # I/O outputs (bitfield into 1 byte)
+    inout_bytes = Fuse_bitfield_2_bytearray(command_data.inout[:])
+    test_list.append(inout_bytes)
+
+    # Timeout
+    test_list.append(bytes([command_data.timeout.value]))
+
+    # Gripper position (2 bytes)
+    grip_pos_bytes = Split_2_3_bytes(command_data.gripper_data[0])
+    test_list.append(grip_pos_bytes[2:4])
+
+    # Gripper speed (2 bytes)
+    grip_speed_bytes = Split_2_3_bytes(command_data.gripper_data[1])
+    test_list.append(grip_speed_bytes[2:4])
+
+    # Gripper current (2 bytes)
+    grip_current_bytes = Split_2_3_bytes(command_data.gripper_data[2])
+    test_list.append(grip_current_bytes[2:4])
+
+    # Gripper command, mode, ID (each 1 byte)
+    test_list.append(bytes([command_data.gripper_data[3]]))
+    test_list.append(bytes([command_data.gripper_data[4]]))
+    test_list.append(bytes([command_data.gripper_data[5]]))
+
+    # CRC + end bytes
+    test_list.append(bytes([CRC_byte]))
+    test_list.append(end_bytes)
+
     return test_list
 
 
