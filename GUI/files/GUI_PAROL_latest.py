@@ -1,32 +1,29 @@
-import cv2
-import tkinter
-import tkinter.messagebox
-import customtkinter
-import matplotlib.pyplot as plt
-import time
-import roboticstoolbox as rp
-import numpy as np
-import platform
-from tools.init_tools import get_image_path, get_my_os
+# Standard library
 import os
-from tkinter import filedialog
-import PIL
-from PIL import Image, ImageTk
+import time
 import logging
-import tkinter as tk
-from tkinter import ttk
-from tkinter.messagebox import showinfo
-from tkinter import messagebox
 import random
+import platform
 import multiprocessing
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.animation as animation
-#from visual_kinematics.RobotSerial import *
-import numpy as np
-from math import pi
-import tools.PAROL6_ROBOT as PAROL6_ROBOT 
-from datetime import datetime
 import re
+from datetime import datetime
+from math import pi
+
+# Third-party libraries
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from PIL import Image, ImageTk
+import customtkinter
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import roboticstoolbox as rp
+
+# Local application imports
+from tools.init_tools import get_image_path, get_my_os
+import tools.PAROL6_ROBOT as PAROL6_ROBOT
 from tools.shared_struct import RobotInputData, RobotOutputData
 
 logging.basicConfig(level = logging.DEBUG,

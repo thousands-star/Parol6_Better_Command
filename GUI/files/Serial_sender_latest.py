@@ -9,7 +9,7 @@ import numpy as np
 from spatialmath import *
 from tools.init_tools import get_my_os, get_image_path
 from tools.log_tools import nice_print_sections
-from tools.data_process_tools import *
+from tools.shared_struct import RobotInputData,RobotOutputData,check_elements
 from multiprocessing import Value, Array
 
 import re
@@ -109,9 +109,9 @@ def Send_data(
         if ser.is_open == True:
             logging.debug("Task 1 alive")
             logging.debug("Data that PC will send to the robot is: ")
-            #s = Pack_data_test() 
+
             # This function packs data that we will send to the robot
-            s = Pack_data_enhanced(Command_data)
+            s = Command_data.pack()
             
             # Make sure if sending calib to gripper to send it only once
             if(Command_data.gripper_data[4] == 1 or Command_data.gripper_data[4] == 2):
@@ -601,7 +601,7 @@ def Get_data(shared: RobotInputData):
 
                     logging.debug("GOOD END CONDITION PC")
                     logging.debug("I UNPACKED RAW DATA RECEIVED FROM THE ROBOT")
-                    Unpack_data(data_buffer, shared)
+                    shared.unpack(data_buffer)
                     logging.debug("DATA UNPACK FINISHED")
                     # ako su dobri izračunaj crc
                     # if crc dobar raspakiraj podatke
