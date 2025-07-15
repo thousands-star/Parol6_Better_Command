@@ -11,6 +11,7 @@ from tools.init_tools import get_my_os, get_image_path
 from tools.log_tools import nice_print_sections
 from tools.shared_struct import RobotInputData,RobotOutputData,check_elements
 from multiprocessing import Value, Array
+from Commander import Reactor
 
 import re
 import math
@@ -92,15 +93,11 @@ Program_step = 0
 Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
 def Send_data(
-    shared_string:       Array,             # multiprocessing.Array('c', …)
     Command_data:         RobotOutputData,
-    Robot_data:           RobotInputData,    # your dataclass for all incoming arrays/values
-    Joint_jog_buttons:   Array,             # multiprocessing.Array("i", [..])
-    Cart_jog_buttons:    Array,             # multiprocessing.Array("i", [..])
-    Jog_control:         Array,             # multiprocessing.Array("i", [..])
     General_data:        Array,             # multiprocessing.Array("i", [port, baud])
-    Buttons:             Array,             # multiprocessing.Array("i", [..])
+    Commander:            Reactor,
 ) -> None:
+    
     timer = Timer(INTERVAL_S, warnings=False, precise=True)
     cnt = 0
 
@@ -111,11 +108,7 @@ def Send_data(
             logging.debug("Data that PC will send to the robot is: ")
 
             # This function packs data that we will send to the robot
-            s = Command_data.pack()
-            
-            # Make sure if sending calib to gripper to send it only once
-            if(Command_data.gripper_data[4] == 1 or Command_data.gripper_data[4] == 2):
-                Command_data.gripper_data[4] = 0
+            s = Commander.giveCommand()
 
             logging.debug(s)
             logging.debug("END of data sent to the ROBOT")
@@ -126,290 +119,6 @@ def Send_data(
             except:
                 logging.debug("NO SERIAL TASK1")
                     # This function packs data that we will send to the robot
-    
-
-            # Check if any of jog buttons is pressed
-            result_joint_jog = check_elements(list(Joint_jog_buttons))
-            result_cart_jog = check_elements(list(Cart_jog_buttons))
-
-            ######################################################
-            ######################################################
-            InOut_in = Robot_data.inout
-            Position_in = Robot_data.position
-
-            
-            # JOINT JOG (regular speed control) 0x123 # -1 is value if nothing is pressed
-            if result_joint_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1: 
-                Robot_mode = "Joint jog"
-                Command_data.command.value = 123 
-                # Set speed for all other joints to 0
-                for i in range(6):
-                    Command_data.speed[i] = 0
-                    # ako je position in veći ili jednak nekom od limita disable tu stranu tipki
-                # Set speed for the clicked joint
-                if(result_joint_jog in [0,1,2,3,4,5]):
-                    if Position_in[result_joint_jog] >= PAROL6_ROBOT.Joint_limits_steps[result_joint_jog][1]:
-                        shared_string.value = b'Error: Robot jog -> Position out of range' 
-                    else:
-                        Command_data.speed[result_joint_jog ] =  int(np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog]]))
-                        arr = bytes(str(result_joint_jog + 1), 'utf-8')
-                        shared_string.value = b'Log: Joint  ' + arr +   b'  jog  ' 
-                else:
-                    if Position_in[result_joint_jog-6] <= PAROL6_ROBOT.Joint_limits_steps[result_joint_jog-6][0]:
-                        shared_string.value = b'Error: Robot jog -> Position out of range'
-                    else:  
-                        Command_data.speed[result_joint_jog - 6] =  int(-1 * np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog-6],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog-6]]))
-                        arr = bytes(str(result_joint_jog - 6 + 1), 'utf-8')
-                        shared_string.value = b'Log: Joint  ' + arr +   b'  jog  ' 
-
-           
-            ######################################################
-            ######################################################
-            # CART JOG (regular speed control but for multiple joints) 0x123 # -1 is value if nothing is pressed
-            elif result_cart_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1: #
-
-                Command_data.command.value = 123
-                # Set speed for all other joints to 0
-                for i in range(6):
-                    Command_data.speed[i] = 0
-                # if moving in positive direction
-                q1 = np.array([PAROL6_ROBOT.STEPS2RADS(Position_in[0],0),
-                                PAROL6_ROBOT.STEPS2RADS(Position_in[1],1),
-                                PAROL6_ROBOT.STEPS2RADS(Position_in[2],2),
-                                PAROL6_ROBOT.STEPS2RADS(Position_in[3],3),
-                                PAROL6_ROBOT.STEPS2RADS(Position_in[4],4),
-                                PAROL6_ROBOT.STEPS2RADS(Position_in[5],5),])
-                T = PAROL6_ROBOT.robot.fkine(q1)
-
-                temp_var = float(np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Cartesian_linear_velocity_min_JOG,PAROL6_ROBOT.Cartesian_linear_velocity_max_JOG]))
-                temp_var_angular = float(np.interp(Jog_control[0],[0,100],[PAROL6_ROBOT.Cartesian_angular_velocity_min,PAROL6_ROBOT.Cartesian_angular_velocity_max]))
-
-                speed_temp = temp_var # Speed is 20mm/s = 0.02m/s
-                speed_temp_angular = temp_var_angular # Speed is DEG/s
-
-                delta_s = speed_temp * INTERVAL_S # displacement in meters
-                delta_s_angular = speed_temp_angular * INTERVAL_S # displacement in degrees
-                
-
-                # WRF jogging
-                if Jog_control[2] == 1: # WRF jog
-                    if result_cart_jog in [1,3,4,10,7,8]: # For positive directions 1,3,4.
-                        if result_cart_jog == 4: # Z+ direction
-                            T.t[2] = T.t[2] + delta_s  # Add to the Z+ direction in WRF
-                            shared_string.value = b'Log: Cartesian WRF Z+ move'
-                        elif result_cart_jog == 3: # Y+ direction
-                            T.t[1] = T.t[1] + delta_s  # Add to the Y+ direction in WRF
-                            shared_string.value = b'Log: Cartesian WRF Y+ move'
-                        elif result_cart_jog == 1: # X+ direction
-                            T.t[0] = T.t[0] + delta_s  # Add to the X+ direction in WRF
-                            shared_string.value = b'Log: Cartesian WRF X+ move'
-
-                        elif result_cart_jog == 10: # Rotation in Z+ direction
-                            None
-                        elif result_cart_jog == 8: # Rotation in Y+ direction
-                            None
-                        elif result_cart_jog == 7: # Rotation in X+ direction
-                            None
-
-                    # if moving in negative direction
-                    else:
-                        if result_cart_jog == 5: # Z- direction
-                            T.t[2] = T.t[2] - delta_s  # Add to the Z- direction in WRF
-                            shared_string.value = b'Log: Cartesian WRF Z- move'
-                        elif result_cart_jog == 2: # Y- direction
-                            T.t[1] = T.t[1] - delta_s  # Add to the Y- direction in WRF
-                            shared_string.value = b'Log: Cartesian WRF Y- move'
-                        elif result_cart_jog == 0: # X- direction
-                            T.t[0] = T.t[0] - delta_s  # Add to the X- direction in WRF
-                            shared_string.value = b'Log: Cartesian WRF X- move'
-
-                        elif result_cart_jog == 11: # Rotation in Z- direction
-                            None
-                        elif result_cart_jog == 9: # Rotation in Y- direction
-                            None
-                        elif result_cart_jog == 6: # Rotation in X- direction
-                            None
-
-                # TRF jogging
-                else: # TRF jog
-                    if result_cart_jog in [1,3,4,10,7,8]: # For positive directions 1,3,4.
-                        if result_cart_jog == 4: # Z+ direction
-                            x1 = [0,0,delta_s] 
-                            x2 = T * x1
-                            Tt = T
-                            Tt.t[0] = x2[0]
-                            Tt.t[1] = x2[1]
-                            Tt.t[2] = x2[2]
-                            T = Tt
-                            shared_string.value = b'Log: Cartesian TRF Z+ move'
-                        elif result_cart_jog == 3: # Y+ direction
-                            x1 = [0,delta_s,0] 
-                            x2 = T * x1
-                            Tt = T
-                            Tt.t[0] = x2[0]
-                            Tt.t[1] = x2[1]
-                            Tt.t[2] = x2[2]
-                            T = Tt
-                            shared_string.value = b'Log: Cartesian TRF Y+ move'
-                        elif result_cart_jog == 1: # X+ direction
-                            x1 = [delta_s,0,0] 
-                            x2 = T * x1
-                            Tt = T
-                            Tt.t[0] = x2[0]
-                            Tt.t[1] = x2[1]
-                            Tt.t[2] = x2[2]
-                            T = Tt
-                            shared_string.value = b'Log: Cartesian TRF X+ move'
-
-                        elif result_cart_jog == 10:  # Rotation in Z+ direction
-                            T2  = T * T.Rz(delta_s_angular,'deg')
-                            T = T2
-                            shared_string.value = b'Log: TRF Z+ Rotation '
-                        elif result_cart_jog == 8:   # Rotation in Y+ direction
-                            T2 = T * T.Ry(delta_s_angular,'deg')
-                            T = T2
-                            shared_string.value = b'Log: TRF Y+ Rotation '
-                        elif result_cart_jog == 7:   # Rotation in x+ direction
-                            T2 = T * T.Rx(delta_s_angular,'deg')
-                            T  = T2
-                            shared_string.value = b'Log: TRF X+ Rotation '
-
-
-                    # if moving in negative direction
-                    else:
-                        if result_cart_jog == 5: # Z- direction
-                            x1 = [0,0,-delta_s] 
-                            x2 = T * x1
-                            Tt = T
-                            Tt.t[0] = x2[0]
-                            Tt.t[1] = x2[1]
-                            Tt.t[2] = x2[2]
-                            T = Tt
-                            shared_string.value = b'Log: Cartesian TRF Z- move'
-                        elif result_cart_jog == 2: # Y- direction
-                            x1 = [0,-delta_s,0] 
-                            x2 = T * x1
-                            Tt = T
-                            Tt.t[0] = x2[0]
-                            Tt.t[1] = x2[1]
-                            Tt.t[2] = x2[2]
-                            T = Tt
-                            shared_string.value = b'Log: Cartesian TRF Y- move'
-                        elif result_cart_jog == 0: # X- direction
-                            x1 = [-delta_s,0,0] 
-                            x2 = T * x1
-                            Tt = T
-                            Tt.t[0] = x2[0]
-                            Tt.t[1] = x2[1]
-                            Tt.t[2] = x2[2]
-                            T = Tt
-                            shared_string.value = b'Log: Cartesian TRF X- move'
-
-                        elif result_cart_jog == 11:  # Rotation in Z- direction
-                            T2  = T * T.Rz(-delta_s_angular,'deg')
-                            T = T2
-                            shared_string.value = b'Log: TRF Z- Rotation '
-                        elif result_cart_jog == 9:  # Rotation in Y- direction
-                            T2  = T * T.Ry(-delta_s_angular,'deg')
-                            T = T2
-                            shared_string.value = b'Log: TRF Y- Rotation '
-                        elif result_cart_jog == 6:  # Rotation in X- direction
-                            T2  = T * T.Rx(-delta_s_angular,'deg')
-                            T = T2
-                            shared_string.value = b'Log: TRF X- Rotation '
-                        
-
-                var = PAROL6_ROBOT.robot.ikine_LMS(T,q0 = q1, ilimit = 6) # Get joint angles
-
-                temp_var = [0,0,0,0,0,0]
-                for i in range(6):
-
-                    temp_var[i] = ((var[0][i] - q1[i]) / INTERVAL_S)
-                    #print(temp_var)
-
-                    # If solver gives error DISABLE ROBOT
-                    if var.success:
-                        Command_data.speed[i] = int(PAROL6_ROBOT.SPEED_RAD2STEP(temp_var[i],i))
-                        prev_speed[i] = Command_data.speed[i]
-                    else:
-                        shared_string.value = b'Error: Inverse kinematics error '
-                        #Command_out.value = 102
-                        #Speed_out[i] = 0
-                    # If any joint passed its position limit, disable robot
-
-
-                if Robot_mode != "Cartesian jog":
-                    for i in range(6):
-                        if abs(Command_data.speed[i]) >= 300000:
-                            Command_data.speed[i] = int(Command_data.speed[i] / 10000)
-                            arr = bytes(str(Command_data.speed[i]), 'utf-8')
-                            arr2 = bytes(str(i+1),'utf-8')
-                            shared_string.value = b'Error: Joint  ' + arr2  +   b'  speed error in cart mode  '+ arr
-
-
-                else:
-                    # If any joint starts moving faster than allowed DISABLE ROBOT
-                    for i in range(6):
-                        if abs(Command_data.speed[i]) >= 300000:
-                            Command_data.command.value = 102
-                            arr = bytes(str(Command_data.speed[i]), 'utf-8')
-                            arr2 = bytes(str(i+1),'utf-8')
-                            shared_string.value = b'Error: Joint  ' + arr2  +   b'  speed error in cart mode  '+ arr
-                Robot_mode = "Cartesian jog"
-                # Calculate every joint speed using var and q1
-
-
-
-                # commanded position = robot position
-                # if real send to real
-                # if sim send to sim 
-                # if both send to both 
-                #print(result_joint_jog)
-
-          
-
-            elif Buttons[0] == 1: # HOME COMMAND 0x100
-                Command_data.command.value = 100
-                Buttons[0] = 0
-                shared_string.value = b'Log: Robot homing'
-
-            
-            elif Buttons[1] == 1: # ENABLE COMMAND 0x101
-                Command_data.command.value = 101 
-                Buttons[1] = 0
-                shared_string.value = b'Log: Robot enable'
-
-            elif Buttons[2] == 1 or InOut_in[4] == 0: # DISABLE COMMAND 0x102
-                Robot_mode = "STOP"
-                Buttons[7] = 0 # program execution button
-                Command_data.command.value = 102
-                Buttons[2] = 0
-                shared_string.value = b'Log: Robot disable; button or estop'
-
-            elif Buttons[3] == 1: # CLEAR ERROR COMMAND 0x103
-                Command_data.command.value = 103
-                Buttons[3] = 0
-                shared_string.value = b'Log: Error clear'
-
-            elif Buttons[6] == 1: # For testing accel motions?
-                Command_data.command.value = 69
-            
-
-            # Program execution
-            ######################################################
-            ######################################################
-
-            ######################################################
-            ######################################################
-            else: # If nothing else is done send dummy data 0x255
-                Robot_mode = "Dummy"
-                dummy_data(Command_data.position,Command_data.speed,Command_data.command,Position_in)
-
-            # Provjere 
-            # Svaka move funkciaj će imati svoje provjere!
-            # Tu će samo biti zadnja provjera koja gleda brzine i ako su pre velike stavlja ih na nula!
-            time2 = time.perf_counter()
-    
         else:
             try:
                 if my_os == 'Linux':
@@ -431,16 +140,7 @@ def Send_data(
         timer.checkpt()
 
 
-def dummy_data(Position_out,Speed_out,Command_out,Position_in):
-    Command_out.value = 255
-    for i in range(6):
-        Position_out[i] = Position_in[i]
-        Speed_out[i] = 0
-
-
-
-
-def Receive_data(Robot_data: RobotInputData, general_data: list):
+def Receive_data(general_data: list, commander: Reactor):
     """
     Continuously read packets into `shared` via get_data(shared).
     On any read error, attempt to reconnect serial using general_data[0].
@@ -448,7 +148,7 @@ def Receive_data(Robot_data: RobotInputData, general_data: list):
     while True:
         try:
             # blocks until one full packet is processed into `shared`
-            Get_data(Robot_data)
+            Get_data(commander.robot_data)
         except Exception as read_err:
             logging.debug("Read error: %s", read_err)
             # attempt to reconnect

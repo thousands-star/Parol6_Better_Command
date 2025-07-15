@@ -7,6 +7,7 @@ from tools.init_tools import init_serial, get_image_path,get_my_os
 import Serial_sender_latest
 import GUI_PAROL_latest
 from tools.shared_struct import RobotInputData, RobotOutputData
+from Commander import GUIReactor,Reactor
 
 ser, STARTING_PORT = init_serial()
 my_os = get_my_os()
@@ -18,7 +19,8 @@ def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Button
 def Arm_communication(shared_string,
         Command_data:RobotOutputData, 
         Robot_data:RobotInputData,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,): 
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,
+        Commander: Reactor, ): 
 
     global ser, my_os
     Serial_sender_latest.ser = ser
@@ -26,13 +28,12 @@ def Arm_communication(shared_string,
 
     print(Robot_data.to_dict())
 
-    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
+    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (Command_data,General_data,Commander))
     
-    t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (shared_string,Robot_data,))
+    t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (General_data,Commander))
     
     t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = ( shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
+    Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
 
     t1.start()
     t2.start()
@@ -108,6 +109,8 @@ if __name__ == '__main__':
         gripper_init=[1] * 6,
     )
 
+
+
     # GUI control data
     Homed_out = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False) 
 
@@ -131,6 +134,15 @@ if __name__ == '__main__':
     Position_Sim =  multiprocessing.Array("i",[0,0,0,0,0,0], lock=False) 
 
     shared_string = multiprocessing.Array('c', b' ' * 100)  # Create a character array of size 100
+
+    Commander = GUIReactor(robotInputData=Robot_data, 
+                           robotOutputData=Command_data, 
+                           shared_string=shared_string, 
+                           Joint_jog_buttons=Joint_jog_buttons, 
+                           Cart_jog_buttons=Cart_jog_buttons,
+                           Jog_control=Jog_control,
+                           Buttons=Buttons
+                           )
     
     # Image Queue for camera
     frame_q = multiprocessing.Queue(maxsize=1)
@@ -140,7 +152,7 @@ if __name__ == '__main__':
 
     # Process
     process1 = multiprocessing.Process(target=Arm_communication,args=[shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,])
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,Commander,])
     
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q])

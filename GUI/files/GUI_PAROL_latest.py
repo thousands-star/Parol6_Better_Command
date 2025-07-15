@@ -106,6 +106,7 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
     Position_in = robot_data.position
     InOut_in = robot_data.inout
     Gripper_data_in = robot_data.gripper_data
+    
     InOut_out = command_data.inout
     Gripper_data_out = command_data.gripper_data
 
