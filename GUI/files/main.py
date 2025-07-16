@@ -1,6 +1,8 @@
 import time
 import multiprocessing
 import threading
+import logging
+import sys
 
 import SIMULATOR_Robot
 from tools.init_tools import init_serial, get_image_path,get_my_os
@@ -9,18 +11,25 @@ import GUI_PAROL_latest
 from tools.shared_struct import RobotInputData, RobotOutputData
 from Commander import GUIReactor,Reactor
 
+logging.basicConfig(level = logging.DEBUG,
+    format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
+    datefmt='%H:%M:%S'
+)
+
+logging.disable(logging.DEBUG)
+
 ser, STARTING_PORT = init_serial()
 my_os = get_my_os()
 image_path = get_image_path()
 
-def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons):
-    SIMULATOR_Robot.GUI(Position_out,Robot_data,Position_Sim,Buttons)
+def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons, stop_event:threading.Event):
+    SIMULATOR_Robot.GUI(Position_out,Robot_data,Position_Sim,Buttons, stop_event)
 
 def Arm_communication(shared_string,
         Command_data:RobotOutputData, 
         Robot_data:RobotInputData,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,
-        Commander: Reactor, ): 
+        Commander: Reactor, stop_event:threading.Event): 
 
     global ser, my_os
     Serial_sender_latest.ser = ser
@@ -28,23 +37,30 @@ def Arm_communication(shared_string,
 
     print(Robot_data.to_dict())
 
-    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (Command_data,General_data,Commander))
+    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (Command_data,General_data,Commander,stop_event))
     
-    t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (General_data,Commander))
+    t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (General_data,Commander,stop_event))
     
     t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = ( shared_string,Command_data,Robot_data,
-    Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons))
+    Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,stop_event))
 
     t1.start()
     t2.start()
     t3.start()
 
+
+    logging.info("[Serial Sender] Serial Sender process was shutted down gracefully.")
+
 def GUI_process(shared_string,Command_data:RobotOutputData,
          Robot_data:RobotInputData,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q):
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event):
+
+        logging.info("[GUI] GUI process was initiated.")
 
         GUI_PAROL_latest.GUI(shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q)
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event)
+        
+        logging.info("[GUI] process was shutted down properly.")
 
 def Camera_process(frame_q, display_q, stop_event):
     """
@@ -65,7 +81,7 @@ def Camera_process(frame_q, display_q, stop_event):
     t2 = threading.Thread(target=tag_detector_thread, args=(frame_q,tag_list, tag_lock, stop_event), daemon=True)
     t3 = threading.Thread(target=overlay_thread, args=(frame_q, display_q, tag_list, tag_lock, stop_event), daemon=True)
 
-    print("[Camera Process] Starting threads (capture, detect, overlay)...")
+    logging.info("[Camera Process] Starting threads (capture, detect, overlay)...")
     t1.start()
     t2.start()
     t3.start()
@@ -73,7 +89,13 @@ def Camera_process(frame_q, display_q, stop_event):
     t2.join()
     t3.join()
 
-     
+    frame_q.close()
+    display_q.close()
+    frame_q.cancel_join_thread()
+    display_q.cancel_join_thread()
+
+    logging.info("[Camera Process] All threads exited, cleaning up and terminating process.")
+
 
 if __name__ == '__main__':
 
@@ -150,16 +172,18 @@ if __name__ == '__main__':
     stop_event = multiprocessing.Event()
 
 
-    # Process
+ 
     process1 = multiprocessing.Process(target=Arm_communication,args=[shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,Commander,])
+         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,Commander,stop_event,])
     
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q])
-    
-    process3 = multiprocessing.Process(target=SIMULATOR_process,args =[Command_data,Robot_data,Position_Sim,Buttons])
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event])
 
-    process4 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, stop_event])
+    process3 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, stop_event])
+
+    # Due to unknown reason, it is hard to implement safe close event into process4, We would just disable it since it is not significant in our usage.
+
+    # process4 = multiprocessing.Process(target=SIMULATOR_process,args =[Command_data,Robot_data,Position_Sim,Buttons, stop_event])
     
 
     process1.start()
@@ -167,15 +191,12 @@ if __name__ == '__main__':
     process2.start()
     time.sleep(1)
     process3.start()
-    time.sleep(1)
-    process4.start()
 
+    
     process1.join()
     process2.join()
     process3.join()
-    process4.join()
 
-    process1.terminate()
-    process2.terminate()
-    process3.terminate()
-    process4.terminate()
+
+    logging.info("See you again!")
+    sys.exit(0)

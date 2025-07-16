@@ -37,16 +37,16 @@ class Reactor(ABC):
         if(self.cmd_data.gripper_data[4] == 1 or self.cmd_data.gripper_data[4] == 2):
             self.cmd_data.gripper_data[4] = 0
 
-        if self.counter < 500:
-            self.counter = self.counter + 1
-        else:
-            Initprint = {
-                "robot_data": self.robot_data.to_dict(),
-                "cmd_data": self.cmd_data.to_dict()
-            }
+        # if self.counter < 500:
+        #     self.counter = self.counter + 1
+        # else:
+        #     Initprint = {
+        #         "robot_data": self.robot_data.to_dict(),
+        #         "cmd_data": self.cmd_data.to_dict()
+        #     }
 
-            nice_print_sections(Initprint)
-            self.counter = 0
+        #     nice_print_sections(Initprint)
+        #     self.counter = 0
 
         return self.cmd_data.pack()
     

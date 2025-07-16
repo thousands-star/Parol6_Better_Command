@@ -5,6 +5,7 @@ import logging
 import random
 import platform
 import multiprocessing
+import threading
 import re
 from datetime import datetime
 from math import pi
@@ -87,7 +88,7 @@ robot_pose = [0,0,0,0,0,0] #np.array([0,0,0,0,0,0])
 padx_top_bot = 20
 
 def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q):
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event:threading.Event):
     
     app = customtkinter.CTk()
     shared_string.value = b'PAROL6 commander v1.0'
@@ -163,7 +164,7 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
         app.help_button = customtkinter.CTkButton(app.menu_select_frame, corner_radius=0, height=1, border_spacing=10,
                                                 fg_color="transparent", text_color=("gray10", "gray90"),
                                                 image=app.help_button_image, anchor="CENTER",text = "",hover = 0,command = Open_help) #hover = 0
-        app.help_button.grid(row=0, column=6, padx=(120,0), sticky="news")
+        app.help_button.grid(row=0, column=7, padx=(120,0), sticky="news")
 
 
     def bottom_frames():
@@ -1315,6 +1316,13 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
         
         app.after(66,Stuff_To_Update) # Update data every 66 ms ( 15 frames per second)
 
+    def on_closing():
+        print("[Exit] Safe Exiting GUI...")
+
+        # ✅ 发出停止信号给所有线程
+        stop_event.set()
+
+        app.destroy()
 
 
     #Stuff_To_Update(self)
@@ -1332,8 +1340,7 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
     Gripper_frame()
     app.jog_frame.tkraise()
     Stuff_To_Update()
-
-
+    app.protocol("WM_DELETE_WINDOW", on_closing)
     app.mainloop() 
 
 
@@ -1359,6 +1366,9 @@ if __name__ == "__main__":
     robot_data = RobotInputData()
     robot_data.initialize()
 
+    cmd_data = RobotOutputData()
+    cmd_data.initialize()
+
     # GUI control data
     Joint_jog_buttons = [0,0,0,0,0,0,0,0,0,0,0,0]
     Cart_jog_buttons = [0,0,0,0,0,0,0,0,0,0,0,0]
@@ -1375,6 +1385,5 @@ if __name__ == "__main__":
 
 
 
-    GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         robot_data,
+    GUI(shared_string,cmd_data,robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q)

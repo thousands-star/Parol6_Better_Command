@@ -5,6 +5,7 @@ import roboticstoolbox as rp
 import struct
 import logging
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
+import threading
 import numpy as np
 from spatialmath import *
 from tools.init_tools import get_my_os, get_image_path
@@ -29,7 +30,6 @@ from spatialmath.base.argcheck import (
 my_os = get_my_os()
 Image_path = get_image_path()
 
-print("run this")
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
@@ -94,14 +94,17 @@ Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
 def Send_data(
     Command_data:         RobotOutputData,
-    General_data:        Array,             # multiprocessing.Array("i", [port, baud])
+    General_data:        Array,              # multiprocessing.Array("i", [port, baud])
     Commander:            Reactor,
+    stop_event:           threading.Event
 ) -> None:
     
     timer = Timer(INTERVAL_S, warnings=False, precise=True)
     cnt = 0
 
     while timer.elapsed_time < 110000:
+        if stop_event.is_set():
+            break
 
         if ser.is_open == True:
             logging.debug("Task 1 alive")
@@ -138,14 +141,15 @@ def Send_data(
                 logging.debug("no serial available, reconnecting!")   
 
         timer.checkpt()
+    logging.info("[Serial Sender] Sender thread was closed properly.")
 
 
-def Receive_data(general_data: list, commander: Reactor):
+def Receive_data(general_data: list, commander: Reactor, exit_event:threading.Event):
     """
     Continuously read packets into `shared` via get_data(shared).
     On any read error, attempt to reconnect serial using general_data[0].
     """
-    while True:
+    while not exit_event.is_set():
         try:
             # blocks until one full packet is processed into `shared`
             Get_data(commander.robot_data)
@@ -167,6 +171,7 @@ def Receive_data(general_data: list, commander: Reactor):
             except Exception as conn_err:
                 logging.debug("Reconnect failed: %s", conn_err)
                 time.sleep(0.5)
+    logging.info("[Serial Sender] Receiving Thread was closed properly.")
 
 
 # Treba mi bytes format za slanje, nije baš user readable je pretvori iz hex u ascii
@@ -188,8 +193,9 @@ def Monitor_system(
     Jog_control:         Array,             # multiprocessing.Array("i", [..])
     General_data:        Array,             # multiprocessing.Array("i", [port, baud])
     Buttons:             Array,             # multiprocessing.Array("i", [..])
+    stop_event:         threading.Event,
 ) -> None:
-    while True:
+    while not stop_event.is_set():
         # 1) Print robot inputs
         robot_data = Robot_data.to_dict()
 
@@ -221,6 +227,7 @@ def Monitor_system(
         })
 
         time.sleep(3)
+    logging.info("[Serial Sender] System Monitor Thread was closed.")
 
 
 def Get_data(shared: RobotInputData):

@@ -2,10 +2,18 @@ import cv2
 import threading
 import queue
 import time
+import logging
 import os
 import numpy as np
 from tools.Camera.CameraBase import LogitechCamera
 from pupil_apriltags import Detector
+
+logging.basicConfig(level = logging.DEBUG,
+    format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
+    datefmt='%H:%M:%S'
+)
+
+logging.disable(logging.DEBUG)
 
 # ========================== THREADS ==========================
 
@@ -21,6 +29,7 @@ def camera_capture_thread(cam: LogitechCamera, frame_q: queue.Queue, exit_event:
             except queue.Full:
                 pass
             time.sleep(0.01)
+        logging.debug("Camera capture thread closed as exit_event detected.")
 
 def tag_detector_thread(frame_q: queue.Queue, detected_tags: list, tag_lock: threading.Lock, exit_event: threading.Event):
     param_dir = os.path.join(os.path.dirname(__file__), "tools", "Camera", "param")
@@ -44,6 +53,7 @@ def tag_detector_thread(frame_q: queue.Queue, detected_tags: list, tag_lock: thr
         with tag_lock:
             detected_tags.clear()
             detected_tags.extend(tags)
+    logging.debug("Tag Detector thread closed as exit_event detected.")
 
 def overlay_thread(frame_q: queue.Queue, display_q: queue.Queue, detected_tags: list, tag_lock: threading.Lock, exit_event: threading.Event):
     while not exit_event.is_set():
@@ -58,7 +68,7 @@ def overlay_thread(frame_q: queue.Queue, display_q: queue.Queue, detected_tags: 
                 cv2.putText(frame, f"ID:{tag.tag_id}", (center[0] + 10, center[1]),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 x, y, z = tag.pose_t.flatten()
-                print(f"🧭 Tag ID {tag.tag_id} distance: x={x:.2f}m, y={y:.2f}m, z={z:.2f}m")
+                logging.debug(f"🧭 Tag ID {tag.tag_id} distance: x={x:.2f}m, y={y:.2f}m, z={z:.2f}m")
         if display_q.full():
             try: display_q.get_nowait()
             except: pass
@@ -66,6 +76,7 @@ def overlay_thread(frame_q: queue.Queue, display_q: queue.Queue, detected_tags: 
             display_q.put_nowait(frame.copy())
         except queue.Full:
             pass
+    logging.debug("Camera Overlay thread closed as exit_event detected.")
 
 def livefeed_thread(display_q: queue.Queue, exit_event: threading.Event):
     while not exit_event.is_set():

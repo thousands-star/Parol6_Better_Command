@@ -3,6 +3,7 @@ import platform
 import serial
 import logging
 
+
 def get_my_os():
     my_os = platform.system()
     if my_os == "Windows":
