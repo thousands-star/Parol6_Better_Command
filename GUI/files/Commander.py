@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from tools.shared_struct import RobotInputData, RobotOutputData, check_elements
 from tools.PAROL6_ROBOT import Joint_min_jog_speed, Joint_max_jog_speed
 import numpy as np
-from typing import List
+from typing import List, Dict, Any
 from multiprocessing import Array
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
 from tools.log_tools import nice_print_sections
@@ -50,12 +50,17 @@ class Reactor(ABC):
 
         return self.cmd_data.pack()
     
-    
- 
-
     @abstractmethod
     def plan(self) -> List[bytes]:
         return self.robot_data.pack()
+    
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        抽象方法：返回当前内部状态的字典表示，由外层监控(nice_print_sections)使用。
+        子类应当包含至少 'robot_data' 和 'cmd_data' 两个键。
+        """
+        pass
 
 
 class GUIReactor(Reactor):
@@ -349,4 +354,25 @@ class GUIReactor(Reactor):
                 Robot_mode = "Dummy"
                 dummy_data(self.cmd_data.position,self.cmd_data.speed,self.cmd_data.command,Position_in)
 
-        
+    def to_dict(self):
+        gui = {
+            "Joint jog":  list(self.Joint_jog_buttons),
+            "Cart jog":   list(self.Cart_jog_buttons),
+            "Home":       self.Buttons[0],
+            "Enable":     self.Buttons[1],
+            "Disable":    self.Buttons[2],
+            "Clear err":  self.Buttons[3],
+            "Real/Sim":   f"{self.Buttons[4]}/{self.Buttons[5]}",
+            "Speed sl":   self.Jog_control[0],
+            "WRF/TRF":    self.Jog_control[2],
+            "Demo":       self.Buttons[6],
+            "Execute":    self.Buttons[7],
+            "Park":       self.Buttons[8],
+            "Log msg":    self.shared_string.value.decode().strip(),
+        }
+        output = {
+            "Robot Data": self.robot_data.to_dict(),
+            "Commanded Data": self.cmd_data.to_dict(),
+            "GUI state": gui
+        }
+        return output

@@ -38,6 +38,7 @@ logging.basicConfig(level = logging.DEBUG,
 logging.disable(logging.DEBUG)
 
 ser = None
+LOGINTERVAL = 3
 #ser.open()
 
 
@@ -93,7 +94,6 @@ Program_step = 0
 Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
 def Send_data(
-    Command_data:         RobotOutputData,
     General_data:        Array,              # multiprocessing.Array("i", [port, baud])
     Commander:            Reactor,
     stop_event:           threading.Event
@@ -185,48 +185,13 @@ def Receive_data(general_data: list, commander: Reactor, exit_event:threading.Ev
 # Dummy test task
 # Best used to show data that we get from the robot and data we get from GUI
 def Monitor_system(
-    shared_string:       Array,            # e.g. Array('c', …)
-    Command_data:            RobotOutputData,
-    Robot_data:              RobotInputData,   # all incoming data wrapped here
-    Joint_jog_buttons:   Array,             # multiprocessing.Array("i", [..])
-    Cart_jog_buttons:    Array,             # multiprocessing.Array("i", [..])
-    Jog_control:         Array,             # multiprocessing.Array("i", [..])
-    General_data:        Array,             # multiprocessing.Array("i", [port, baud])
-    Buttons:             Array,             # multiprocessing.Array("i", [..])
+    commander:          Reactor,
     stop_event:         threading.Event,
 ) -> None:
     while not stop_event.is_set():
-        # 1) Print robot inputs
-        robot_data = Robot_data.to_dict()
-
-        # 2) Print commanded outputs
-        command_data = Command_data.to_dict()
-
-        # 3) Print GUI state
-        gui = {
-            "Joint jog":  list(Joint_jog_buttons),
-            "Cart jog":   list(Cart_jog_buttons),
-            "Home":       Buttons[0],
-            "Enable":     Buttons[1],
-            "Disable":    Buttons[2],
-            "Clear err":  Buttons[3],
-            "Real/Sim":   f"{Buttons[4]}/{Buttons[5]}",
-            "Speed sl":   Jog_control[0],
-            "WRF/TRF":    Jog_control[2],
-            "Demo":       Buttons[6],
-            "Execute":    Buttons[7],
-            "Park":       Buttons[8],
-            "Log msg":    shared_string.value.decode().strip(),
-        }
-
-        # 4) Print everything in one go
-        nice_print_sections({
-            "Robot Data":      robot_data,
-            "Commanded Data":  command_data,
-            "GUI State":       gui,
-        })
-
-        time.sleep(3)
+        # Print everything in one go
+        nice_print_sections(commander.to_dict())
+        time.sleep(LOGINTERVAL)
     logging.info("[Serial Sender] System Monitor Thread was closed.")
 
 

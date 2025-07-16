@@ -25,24 +25,18 @@ image_path = get_image_path()
 def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons, stop_event:threading.Event):
     SIMULATOR_Robot.GUI(Position_out,Robot_data,Position_Sim,Buttons, stop_event)
 
-def Arm_communication(shared_string,
-        Command_data:RobotOutputData, 
-        Robot_data:RobotInputData,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,
-        Commander: Reactor, stop_event:threading.Event): 
+def Arm_communication(General_data,Commander: Reactor, stop_event:threading.Event): 
 
     global ser, my_os
     Serial_sender_latest.ser = ser
     Serial_sender_latest.my_os = my_os
+    Serial_sender_latest.LOGINTERVAL = 3
 
-    print(Robot_data.to_dict())
-
-    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (Command_data,General_data,Commander,stop_event))
+    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (General_data,Commander,stop_event))
     
     t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (General_data,Commander,stop_event))
     
-    t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = ( shared_string,Command_data,Robot_data,
-    Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,stop_event))
+    t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = (Commander,stop_event))
 
     t1.start()
     t2.start()
@@ -173,8 +167,7 @@ if __name__ == '__main__':
 
 
  
-    process1 = multiprocessing.Process(target=Arm_communication,args=[shared_string,Command_data,Robot_data,
-         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,Commander,stop_event,])
+    process1 = multiprocessing.Process(target=Arm_communication,args=[General_data,Commander,stop_event,])
     
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event])
@@ -196,7 +189,6 @@ if __name__ == '__main__':
     process1.join()
     process2.join()
     process3.join()
-
 
     logging.info("See you again!")
     sys.exit(0)
