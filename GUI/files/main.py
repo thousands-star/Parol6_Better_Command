@@ -9,7 +9,8 @@ from tools.init_tools import init_serial, get_image_path,get_my_os
 import Serial_sender_latest
 import GUI_PAROL_latest
 from tools.shared_struct import RobotInputData, RobotOutputData
-from Commander import GUIReactor,Reactor
+from Reactor import GUIReactor,Reactor
+from Commander import Commander, Mode
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
@@ -25,7 +26,7 @@ image_path = get_image_path()
 def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons, stop_event:threading.Event):
     SIMULATOR_Robot.GUI(Position_out,Robot_data,Position_Sim,Buttons, stop_event)
 
-def Arm_communication(General_data,Commander: Reactor, stop_event:threading.Event): 
+def Arm_communication(General_data,Commander: Commander, stop_event:threading.Event): 
 
     global ser, my_os
     Serial_sender_latest.ser = ser
@@ -151,8 +152,7 @@ if __name__ == '__main__':
 
     shared_string = multiprocessing.Array('c', b' ' * 100)  # Create a character array of size 100
 
-    Commander = GUIReactor(robotInputData=Robot_data, 
-                           robotOutputData=Command_data, 
+    guireactor = GUIReactor(
                            shared_string=shared_string, 
                            Joint_jog_buttons=Joint_jog_buttons, 
                            Cart_jog_buttons=Cart_jog_buttons,
@@ -160,14 +160,20 @@ if __name__ == '__main__':
                            Buttons=Buttons
                            )
     
+    plugins = {Mode.GUI: guireactor}
+    
+    commander = Commander(cmd_data=Command_data, robot_data= Robot_data, plugins=plugins, default_mode=Mode.GUI)
+    
     # Image Queue for camera
     frame_q = multiprocessing.Queue(maxsize=1)
     display_q = multiprocessing.Queue(maxsize=1)
     stop_event = multiprocessing.Event()
 
+    
+
 
  
-    process1 = multiprocessing.Process(target=Arm_communication,args=[General_data,Commander,stop_event,])
+    process1 = multiprocessing.Process(target=Arm_communication,args=[General_data,commander,stop_event,])
     
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event])
@@ -185,7 +191,6 @@ if __name__ == '__main__':
     time.sleep(1)
     process3.start()
 
-    
     process1.join()
     process2.join()
     process3.join()

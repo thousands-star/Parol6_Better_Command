@@ -10,9 +10,9 @@ import numpy as np
 from spatialmath import *
 from tools.init_tools import get_my_os, get_image_path
 from tools.log_tools import nice_print_sections
-from tools.shared_struct import RobotInputData,RobotOutputData,check_elements
+from tools.shared_struct import RobotInputData
 from multiprocessing import Value, Array
-from Commander import Reactor
+from Commander import Commander
 
 import re
 import math
@@ -95,7 +95,7 @@ Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
 def Send_data(
     General_data:        Array,              # multiprocessing.Array("i", [port, baud])
-    Commander:            Reactor,
+    Commander:            Commander,
     stop_event:           threading.Event
 ) -> None:
     
@@ -144,7 +144,7 @@ def Send_data(
     logging.info("[Serial Sender] Sender thread was closed properly.")
 
 
-def Receive_data(general_data: list, commander: Reactor, exit_event:threading.Event):
+def Receive_data(general_data: list, commander: Commander, exit_event:threading.Event):
     """
     Continuously read packets into `shared` via get_data(shared).
     On any read error, attempt to reconnect serial using general_data[0].
@@ -185,7 +185,7 @@ def Receive_data(general_data: list, commander: Reactor, exit_event:threading.Ev
 # Dummy test task
 # Best used to show data that we get from the robot and data we get from GUI
 def Monitor_system(
-    commander:          Reactor,
+    commander:          Commander,
     stop_event:         threading.Event,
 ) -> None:
     while not stop_event.is_set():
