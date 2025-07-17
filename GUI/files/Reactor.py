@@ -408,7 +408,19 @@ class FollowTagReactor(Reactor):
                 cmd_data.command,robot_data.position)
 
     def to_dict(self):
-        output = {"tags": self.tag}
-        return output
-        
+
+        """
+        将 self.tag（Detection 列表）转换成一个 {id: info_dict} 的映射。
+        """
+        return {
+            tag.tag_id: {
+                "center": (float(tag.center[0]), float(tag.center[1])),
+                "pose": {
+                    "x": float(tag.pose_t[0][0]),
+                    "y": float(tag.pose_t[1][0]),
+                    "z": float(tag.pose_t[2][0]),
+                }
+            }
+            for tag in self.tag
+        }
         
