@@ -15,6 +15,7 @@ logging.basicConfig(level = logging.DEBUG,
 
 logging.disable(logging.DEBUG)
 
+detected_tags = []
 # ========================== THREADS ==========================
 
 def camera_capture_thread(cam: LogitechCamera, frame_q: queue.Queue, exit_event: threading.Event):
@@ -31,11 +32,13 @@ def camera_capture_thread(cam: LogitechCamera, frame_q: queue.Queue, exit_event:
             time.sleep(0.01)
         logging.debug("Camera capture thread closed as exit_event detected.")
 
-def tag_detector_thread(frame_q: queue.Queue, detected_tags: list, tag_lock: threading.Lock, exit_event: threading.Event):
+def tag_detector_thread(frame_q: queue.Queue, publish_tag: queue.Queue, tag_lock: threading.Lock, exit_event: threading.Event):
     param_dir = os.path.join(os.path.dirname(__file__), "tools", "Camera", "param")
     camera_matrix = np.loadtxt(os.path.join(param_dir, "camera_intrinsic_matrix.csv"), delimiter=',')
     dist_coeffs = np.loadtxt(os.path.join(param_dir, "distortion_coeffs.csv"), delimiter=',')
     tag_size = 0.05
+
+    global detected_tags
 
     detector = Detector(families='tagStandard41h12', nthreads=1)
     while not exit_event.is_set():
@@ -53,9 +56,21 @@ def tag_detector_thread(frame_q: queue.Queue, detected_tags: list, tag_lock: thr
         with tag_lock:
             detected_tags.clear()
             detected_tags.extend(tags)
+
+                # 拷贝并发布给外部进程/线程
+        snapshot = [t for t in tags]  # 浅拷贝
+        try:
+            publish_tag.put_nowait(snapshot)
+        except queue.Full:
+            # 保持队列只存最新一次
+            _ = publish_tag.get_nowait()
+            publish_tag.put_nowait(snapshot)
+        
+
     logging.debug("Tag Detector thread closed as exit_event detected.")
 
-def overlay_thread(frame_q: queue.Queue, display_q: queue.Queue, detected_tags: list, tag_lock: threading.Lock, exit_event: threading.Event):
+def overlay_thread(frame_q: queue.Queue, display_q: queue.Queue, tag_lock: threading.Lock, exit_event: threading.Event):
+    global detected_tags
     while not exit_event.is_set():
         try:
             frame = frame_q.get(timeout=0.1)

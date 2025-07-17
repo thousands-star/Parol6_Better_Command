@@ -57,7 +57,7 @@ def GUI_process(shared_string,Command_data:RobotOutputData,
         
         logging.info("[GUI] process was shutted down properly.")
 
-def Camera_process(frame_q, display_q, stop_event):
+def Camera_process(frame_q, display_q, detected_tags, stop_event):
     """
     Start 3 threads:
     - camera_capture_thread: captures images and puts them into frame_q
@@ -67,14 +67,13 @@ def Camera_process(frame_q, display_q, stop_event):
     from tools.Camera.CameraBase import LogitechCamera
     from Vision import camera_capture_thread, tag_detector_thread, overlay_thread
     
-    tag_list = []
     tag_lock = threading.Lock()
 
     cam = LogitechCamera(source=1, width=640, height=480, fps=30)
 
     t1 = threading.Thread(target=camera_capture_thread, args=(cam, frame_q,stop_event), daemon=True)
-    t2 = threading.Thread(target=tag_detector_thread, args=(frame_q,tag_list, tag_lock, stop_event), daemon=True)
-    t3 = threading.Thread(target=overlay_thread, args=(frame_q, display_q, tag_list, tag_lock, stop_event), daemon=True)
+    t2 = threading.Thread(target=tag_detector_thread, args=(frame_q,detected_tags, tag_lock, stop_event), daemon=True)
+    t3 = threading.Thread(target=overlay_thread, args=(frame_q, display_q, tag_lock, stop_event), daemon=True)
 
     logging.info("[Camera Process] Starting threads (capture, detect, overlay)...")
     t1.start()
@@ -152,6 +151,8 @@ if __name__ == '__main__':
 
     shared_string = multiprocessing.Array('c', b' ' * 100)  # Create a character array of size 100
 
+    detected_tags = multiprocessing.Queue(maxsize=2)
+
     guireactor = GUIReactor(
                            shared_string=shared_string, 
                            Joint_jog_buttons=Joint_jog_buttons, 
@@ -178,7 +179,7 @@ if __name__ == '__main__':
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event])
 
-    process3 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, stop_event])
+    process3 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, detected_tags, stop_event])
 
     # Due to unknown reason, it is hard to implement safe close event into process4, We would just disable it since it is not significant in our usage.
 
