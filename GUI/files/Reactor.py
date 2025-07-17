@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 from multiprocessing import Array
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
 from tools.log_tools import nice_print_sections
+import queue
 
 INTERVAL_S = 0.01
 Robot_mode = "Dummy"
@@ -395,16 +396,19 @@ class GUIReactor(Reactor):
 
         return gui
     
-class FollowReactor(Reactor):
-    def __init__(self, 
-                robotOutputData: RobotOutputData, 
-                robotInputData: RobotInputData,
-                ):
-        
-        super().__init__(robot_output=robotOutputData, robot_input=robotInputData)
+class FollowTagReactor(Reactor):
+    def __init__(self, detected_tags: queue.Queue):
+        self.tags_q = detected_tags
+        self.tag = None
     
+    def plan(self, robot_data: RobotInputData, cmd_data: RobotOutputData):
+        self.tag = self.tags_q.get()
+        dummy_data(cmd_data.position,
+                cmd_data.speed,
+                cmd_data.command,robot_data.position)
+
     def to_dict(self):
-        output = {}
+        output = {"tags": self.tag}
         return output
         
         

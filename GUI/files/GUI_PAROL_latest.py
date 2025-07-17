@@ -9,6 +9,8 @@ import threading
 import re
 from datetime import datetime
 from math import pi
+from Commander import Mode
+from multiprocessing import Value
 
 # Third-party libraries
 import cv2
@@ -88,7 +90,7 @@ robot_pose = [0,0,0,0,0,0] #np.array([0,0,0,0,0,0])
 padx_top_bot = 20
 
 def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event:threading.Event):
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, robot_mode,stop_event:threading.Event):
     
     app = customtkinter.CTk()
     shared_string.value = b'PAROL6 commander v1.0'
@@ -851,6 +853,43 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
 
     #app.textbox_program.bind("<KeyRelease>", highlight_words)
 
+    def commands_frames():
+        # Commands frame
+        app.commands_frame = customtkinter.CTkFrame(app, height=100, width=180, corner_radius=0)
+        app.commands_frame.grid(row=1, column=3, rowspan=3, padx=(5,5), pady=5, sticky="news")
+        app.commands_frame.grid_columnconfigure(0, weight=0)
+
+        # Title label
+        app.mode_label = customtkinter.CTkLabel(master=app.commands_frame, text="Control Mode", font=customtkinter.CTkFont(size=16, weight="bold"))
+        app.mode_label.grid(row=0, column=0, pady=10, padx=20, sticky="w")
+        
+        # Mode toggle buttons
+        def set_mode_gui():
+            selected_mode.set("GUI")
+            robot_mode.value = Mode.GUI  # GUI mode enum value
+            shared_string.value = b"Toggles to GUI mode"
+
+        def set_mode_follow():
+            selected_mode.set("FollowTag")
+            robot_mode.value = Mode.FOLLOW_TAG  # FollowTag mode enum value
+            shared_string.value = b"Toggles to Follow tag mode"
+
+        def set_mode_auto():
+            selected_mode.set("AutoNav")
+            robot_mode.value = Mode.AUTO_NAV # AutoNav mode enum value
+            shared_string.value = b"Toggles to Auto Nav mode"
+
+        selected_mode = tk.StringVar(value="GUI")
+
+
+        app.gui_mode_button = customtkinter.CTkRadioButton(master=app.commands_frame, text="GUI Mode", variable=selected_mode, value="GUI", command=set_mode_gui)
+        app.gui_mode_button.grid(row=1, column=0, pady=5, padx=20, sticky="w")
+
+        app.follow_mode_button = customtkinter.CTkRadioButton(master=app.commands_frame, text="Follow Tag", variable=selected_mode, value="FollowTag", command=set_mode_follow)
+        app.follow_mode_button.grid(row=2, column=0, pady=5, padx=20, sticky="w")
+
+        app.auto_mode_button = customtkinter.CTkRadioButton(master=app.commands_frame, text="Auto Nav", variable=selected_mode, value="AutoNav", command=set_mode_auto)
+        app.auto_mode_button.grid(row=3, column=0, pady=5, padx=20, sticky="w")
 
     def Change_gripper_ID():
         ID_var = app.grip_ID_entry.get()
@@ -1338,6 +1377,7 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
     start_stop_frame()
     Calibrate_frame()
     Gripper_frame()
+    commands_frames()
     app.jog_frame.tkraise()
     Stuff_To_Update()
     app.protocol("WM_DELETE_WINDOW", on_closing)

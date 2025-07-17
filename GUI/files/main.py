@@ -9,7 +9,7 @@ from tools.init_tools import init_serial, get_image_path,get_my_os
 import Serial_sender_latest
 import GUI_PAROL_latest
 from tools.shared_struct import RobotInputData, RobotOutputData
-from Reactor import GUIReactor,Reactor
+from Reactor import GUIReactor,FollowTagReactor
 from Commander import Commander, Mode
 
 logging.basicConfig(level = logging.DEBUG,
@@ -26,18 +26,18 @@ image_path = get_image_path()
 def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons, stop_event:threading.Event):
     SIMULATOR_Robot.GUI(Position_out,Robot_data,Position_Sim,Buttons, stop_event)
 
-def Arm_communication(General_data,Commander: Commander, stop_event:threading.Event): 
+def Arm_communication(General_data,Commander: Commander, Robot_mode, stop_event:threading.Event): 
 
     global ser, my_os
     Serial_sender_latest.ser = ser
     Serial_sender_latest.my_os = my_os
     Serial_sender_latest.LOGINTERVAL = 3
 
-    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (General_data,Commander,stop_event))
+    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (General_data,Commander,Robot_mode,stop_event))
     
     t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (General_data,Commander,stop_event))
     
-    t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = (Commander,stop_event))
+    t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = (Commander,Robot_mode,stop_event))
 
     t1.start()
     t2.start()
@@ -48,12 +48,12 @@ def Arm_communication(General_data,Commander: Commander, stop_event:threading.Ev
 
 def GUI_process(shared_string,Command_data:RobotOutputData,
          Robot_data:RobotInputData,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event):
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, robot_mode, stop_event):
 
         logging.info("[GUI] GUI process was initiated.")
 
         GUI_PAROL_latest.GUI(shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event)
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, robot_mode, stop_event)
         
         logging.info("[GUI] process was shutted down properly.")
 
@@ -85,8 +85,10 @@ def Camera_process(frame_q, display_q, detected_tags, stop_event):
 
     frame_q.close()
     display_q.close()
+    detected_tags.close()
     frame_q.cancel_join_thread()
     display_q.cancel_join_thread()
+    detected_tags.cancel_join_thread()
 
     logging.info("[Camera Process] All threads exited, cleaning up and terminating process.")
 
@@ -131,7 +133,7 @@ if __name__ == '__main__':
     Homed_out = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False) 
 
     #General robot vars
-    Robot_GUI_mode =   multiprocessing.Value('i',0)
+    Robot_mode =   multiprocessing.Value('i',Mode.GUI)
 
     # Robot jogging vars
     Joint_jog_buttons = multiprocessing.Array("i",[0,0,0,0,0,0,0,0,0,0,0,0], lock=False) 
@@ -161,9 +163,11 @@ if __name__ == '__main__':
                            Buttons=Buttons
                            )
     
-    plugins = {Mode.GUI: guireactor}
+    followtagreactor = FollowTagReactor(detected_tags=detected_tags)
     
-    commander = Commander(cmd_data=Command_data, robot_data= Robot_data, plugins=plugins, default_mode=Mode.GUI)
+    plugins = {Mode.GUI: guireactor, Mode.FOLLOW_TAG: followtagreactor}
+    
+    commander = Commander(cmd_data=Command_data, robot_data= Robot_data, plugins=plugins, current_mode=Robot_mode)
     
     # Image Queue for camera
     frame_q = multiprocessing.Queue(maxsize=1)
@@ -174,10 +178,10 @@ if __name__ == '__main__':
 
 
  
-    process1 = multiprocessing.Process(target=Arm_communication,args=[General_data,commander,stop_event,])
+    process1 = multiprocessing.Process(target=Arm_communication,args=[General_data,commander, Robot_mode, stop_event,])
     
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, stop_event])
+        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, Robot_mode, stop_event])
 
     process3 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, detected_tags, stop_event])
 

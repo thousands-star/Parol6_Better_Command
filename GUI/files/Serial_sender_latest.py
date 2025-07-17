@@ -90,17 +90,20 @@ interval_test = 0
 # Program execution variables
 Program_length = 0
 Program_step = 0
+prev_mode = None
 
 Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
 def Send_data(
     General_data:        Array,              # multiprocessing.Array("i", [port, baud])
     Commander:            Commander,
+    Robot_mode:             Value,
     stop_event:           threading.Event
 ) -> None:
     
     timer = Timer(INTERVAL_S, warnings=False, precise=True)
     cnt = 0
+    prev_mode = Robot_mode
 
     while timer.elapsed_time < 110000:
         if stop_event.is_set():
@@ -186,11 +189,13 @@ def Receive_data(general_data: list, commander: Commander, exit_event:threading.
 # Best used to show data that we get from the robot and data we get from GUI
 def Monitor_system(
     commander:          Commander,
+    robot_mode:         Value,
     stop_event:         threading.Event,
 ) -> None:
     while not stop_event.is_set():
         # Print everything in one go
         nice_print_sections(commander.to_dict())
+        print("Robot_mode: " + str(robot_mode.value))
         time.sleep(LOGINTERVAL)
     logging.info("[Serial Sender] System Monitor Thread was closed.")
 
