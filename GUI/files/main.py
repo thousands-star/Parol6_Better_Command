@@ -163,7 +163,7 @@ if __name__ == '__main__':
                            Buttons=Buttons
                            )
     
-    followtagreactor = FollowTagReactor(detected_tags=detected_tags)
+    followtagreactor = FollowTagReactor(detected_tags=detected_tags, jog_control=Jog_control,shared_string=shared_string)
     
     plugins = {Mode.GUI: guireactor, Mode.FOLLOW_TAG: followtagreactor}
     
@@ -186,7 +186,6 @@ if __name__ == '__main__':
     process3 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, detected_tags, stop_event])
 
     # Due to unknown reason, it is hard to implement safe close event into process4, We would just disable it since it is not significant in our usage.
-
     # process4 = multiprocessing.Process(target=SIMULATOR_process,args =[Command_data,Robot_data,Position_Sim,Buttons, stop_event])
     
 
