@@ -65,7 +65,7 @@ def cartesian_jog_step(cmd_data, robot_data, dx, dy, dz, jog_control, shared_str
                                [PAROL6_ROBOT.Joint_min_jog_speed[i],
                                 PAROL6_ROBOT.Joint_max_jog_speed[i]])
     for i in range(3):    
-        cmd_data.speed[i] = int(np.sign(delta_q[i]) * max_step_s)
+        cmd_data.speed[i] = int(np.sign(delta_q[i]) * max_step_s * 0.5)
 
 def get_median_tag_offset(tags: List) -> Optional[Tuple[float, float, float]]:
     """
@@ -490,15 +490,18 @@ class FollowTagReactor(Reactor):
             if abs(self.dz) > 0.1:
                 self.dz = 0
 
-            if abs(self.dx) < 0.1:
+            if abs(self.dx) < 0.05:
                 self.dx = 0
+
+            if abs(self.dy) < 0.05:
+                self.dy = 0
 
             robotdy = self.dx
             robotdz = self.dy
             
             cartesian_jog_step(cmd_data,
                         robot_data,
-                        0, 0, robotdz,
+                        0, robotdy, -robotdz,
                         self.jog_control,
                         self.shared_string)
         else:
