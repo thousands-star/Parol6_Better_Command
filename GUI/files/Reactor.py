@@ -6,61 +6,15 @@ from typing import List, Dict, Any
 from multiprocessing import Array
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
 from tools.StatelessAction import move_joints, dummy_data, cartesian_jog
+from action import SingleJointJogAction, SingleCartesianJogAction, HomeRobotAction, EnableRobotAction, DisableRobotAction, DummyAction, ClearErrorAction
 from tools.log_tools import nice_print_sections
+from action import Action
 import queue
 from statistics import median           
 from typing import List, Tuple, Optional
 
 INTERVAL_S = 0.01
 Robot_mode = "Dummy"
-
-def cartesian_jog_step(cmd_data, robot_data, dx, dy, dz, jog_control, shared_string):
-    # 1) current joint angles (rad)
-    q0 = np.array([PAROL6_ROBOT.STEPS2RADS(robot_data.position[i], i) for i in range(6)])
-    T0 = PAROL6_ROBOT.robot.fkine(q0)
-
-    # 2) build the *unit* direction vector
-    vec = np.array([dx, dy, dz])
-    norm = np.linalg.norm(vec)
-    if norm == 0:
-        return  # nothing to do
-
-    dir_vec = vec / norm
-
-    # 3) compute frame‐independent step length from slider % and dt
-    vel_pct = jog_control[0] / 100.0
-    max_lin = PAROL6_ROBOT.Cartesian_linear_velocity_max_JOG  # m/s
-    step_len = max_lin * vel_pct * INTERVAL_S  # meters per frame
-
-    # 4) apply small step
-    if jog_control[2] == 1:  # WRF
-        T0.t += dir_vec * step_len
-        shared_string.value = b'Log: Cartesian WRF jog'
-    else:                    # TRF
-        new_pt = T0 * (dir_vec * step_len)
-        T0.t = new_pt
-        shared_string.value = b'Log: Cartesian TRF jog'
-
-    # 5) solve IK for T0
-    mask = [1,1,1,0,0,0]
-    sol = PAROL6_ROBOT.robot.ikine_LMS(T0, q0=q0, ilimit=6, mask=mask)
-    if not sol.success:
-        shared_string.value = b'Warning: IK failed, skipping this step'
-        return
-
-    q1 = sol.q if hasattr(sol, 'q') else sol[0]
-    delta_q = q1 - q0  # rad
-
-    # 6) convert to step/sec based on direction and slider
-    cmd_data.command.value = 123
-    for i in range(6):
-        # choose the max jog speed for this joint
-        max_step_s = np.interp(jog_control[0],
-                               [0, 100],
-                               [PAROL6_ROBOT.Joint_min_jog_speed[i],
-                                PAROL6_ROBOT.Joint_max_jog_speed[i]])
-    for i in range(3):    
-        cmd_data.speed[i] = int(np.sign(delta_q[i]) * max_step_s * 0.5)
 
 def get_median_tag_offset(tags: List) -> Optional[Tuple[float, float, float]]:
     """
@@ -94,34 +48,15 @@ class Reactor(ABC):
         self.prev_speed = [0,0,0,0,0,0]
         self.counter = 0
 
-    def giveCommand(self, robot_data: RobotInputData, cmd_data: RobotOutputData):
+    def giveCommand(self, robot_data: RobotInputData) -> Action:
         """
         This would be called for every 10ms. It will parse in the cmd_data and modify the shared memory inside cmd_data
         Then return the cmd_data.pack() -> byte list
         """
-        self.plan(robot_data=robot_data, cmd_data=cmd_data)
-        if(
-            cmd_data.gripper_data[4] == 1 or 
-        cmd_data.gripper_data[4] == 2):
-            
-            cmd_data.gripper_data[4] = 0
-
-        # if self.counter < 500:
-        #     self.counter = self.counter + 1
-        # else:
-        #     Initprint = {
-        #         "robot_data": robot_data.to_dict(),
-        #         "cmd_data": 
-        # cmd_data.to_dict()
-        #     }
-
-        #     nice_print_sections(Initprint)
-        #     self.counter = 0
-
-        return cmd_data.pack()
+        return self.plan(robot_data=robot_data)
     
     @abstractmethod
-    def plan(self, robot_data: RobotInputData, cmd_data: RobotOutputData) -> List[bytes]:
+    def plan(self, robot_data: RobotInputData) -> Action:
         pass
     
     @abstractmethod
@@ -149,7 +84,7 @@ class GUIReactor(Reactor):
         self.Buttons = Buttons
 
 
-    def plan(self, robot_data: RobotInputData, cmd_data: RobotOutputData):
+    def plan(self, robot_data: RobotInputData):
             # Check if any of jog buttons is pressed
             result_joint_jog = check_elements(list(self.Joint_jog_buttons))
             result_cart_jog = check_elements(list(self.Cart_jog_buttons))
@@ -173,8 +108,7 @@ class GUIReactor(Reactor):
 
                 speed_val = direction * int(np.interp(self.Jog_control[0], [0, 100], [min_speed, max_speed]))
 
-                msg = move_joints(cmd_data, robot_data, [joint_id], [speed_val])
-                self.shared_string.value = msg.encode()[:120]  # Limit length for shared string.
+                return SingleJointJogAction(joint_id, speed_val,self.shared_string)
 
             ######################################################
             ######################################################
@@ -221,17 +155,14 @@ class GUIReactor(Reactor):
                     rx, ry, rz = [val * delta_theta for val in mapping["rpy"]]
 
                 # Execute jog (stateless action)
-                msg = cartesian_jog(
-                    cmd_data=cmd_data,
-                    robot_data=robot_data,
+                return SingleCartesianJogAction(
                     dx=dx, dy=dy, dz=dz,
                     rx=rx, ry=ry, rz=rz,
                     frame="WRF" if self.Jog_control[2] == 1 else "TRF",
                     speed_pct=self.Jog_control[0],
-                    interval_s=INTERVAL_S
+                    interval_s=INTERVAL_S,
+                    shared_string=self.shared_string
                 )
-
-                self.shared_string.value = msg.encode()[:120]  # Cap string length
                 # Calculate every joint speed using var and q1
 
                 # commanded position = robot position
@@ -240,44 +171,24 @@ class GUIReactor(Reactor):
                 # if both send to both 
                 #print(result_joint_jog)
 
-            elif self.Buttons[0] == 1: # HOME COMMAND 0x100
-                
-                cmd_data.command.value = 100
+            elif self.Buttons[0] == 1:
                 self.Buttons[0] = 0
-                self.shared_string.value = b'Log: Robot homing'
+                return HomeRobotAction(self.shared_string)
 
-            elif self.Buttons[1] == 1: # ENABLE COMMAND 0x101
-                
-                cmd_data.command.value = 101 
+            elif self.Buttons[1] == 1:
                 self.Buttons[1] = 0
-                self.shared_string.value = b'Log: Robot enable'
+                return EnableRobotAction(self.shared_string)
 
-            elif self.Buttons[2] == 1 or InOut_in[4] == 0: # DISABLE COMMAND 0x102
-                Robot_mode = "STOP"
-                self.Buttons[7] = 0 # program execution button
-                
-                cmd_data.command.value = 102
+            elif self.Buttons[2] == 1 or InOut_in[4] == 0:
                 self.Buttons[2] = 0
-                self.shared_string.value = b'Log: Robot disable; button or estop'
+                self.Buttons[7] = 0
+                return DisableRobotAction(self.shared_string)
 
-            elif self.Buttons[3] == 1: # CLEAR ERROR COMMAND 0x103
-                
-                cmd_data.command.value = 103
+            elif self.Buttons[3] == 1:
                 self.Buttons[3] = 0
-                self.shared_string.value = b'Log: Error clear'
-
-            elif self.Buttons[6] == 1: # For testing accel motions?
-                
-                cmd_data.command.value = 69
-            # Program execution
-            ######################################################
-
+                return ClearErrorAction(self.shared_string)
             else: # If nothing else is done send dummy data 0x255
-                Robot_mode = "Dummy"
-                dummy_data(
-                    cmd_data.position,
-                cmd_data.speed,
-                cmd_data.command,Position_in)
+                return DummyAction(Position_in)
 
     def to_dict(self):
         gui = {
@@ -309,7 +220,7 @@ class FollowTagReactor(Reactor):
         self.tag = None
 
     
-    def plan(self, robot_data: RobotInputData, cmd_data: RobotOutputData):
+    def plan(self, robot_data: RobotInputData):
         self.tag = self.tags_q.get()
         offset = get_median_tag_offset(self.tag)
 
@@ -336,23 +247,19 @@ class FollowTagReactor(Reactor):
                 scale = min(1.0, max_step / norm)
                 dx, dy, dz = (vec * scale).tolist()
 
-            log = cartesian_jog(
-                cmd_data=cmd_data,
-                robot_data=robot_data,
-                dx=dx, dy=dy, dz=dz,
-                rx=rx, ry=ry, rz=rz,
-                frame="WRF" if self.jog_control[2] == 1 else "TRF",
-                speed_pct=self.jog_control[0],
-                interval_s=INTERVAL_S
-            )
-            self.shared_string.value = log.encode()[:120]
+            return SingleCartesianJogAction(
+                    dx=dx, dy=dy, dz=dz,
+                    rx=rx, ry=ry, rz=rz,
+                    frame="WRF",
+                    speed_pct=self.jog_control[0],
+                    interval_s=INTERVAL_S,
+                    shared_string=self.shared_string
+                )
+
 
         else:
             self.dx, self.dy, self.dz = (0, 0, 0)
-            dummy_data(cmd_data.position,
-                    cmd_data.speed,
-                    cmd_data.command,
-                    robot_data.position)
+            return DummyAction(robot_data.position)
 
     def to_dict(self):
         # build per-tag entries
