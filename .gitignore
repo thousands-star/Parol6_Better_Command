@@ -2,5 +2,7 @@
 /GUI/tools/Camera/calib_pics/*
 /GUI/files/tools/Camera/param
 /GUI/files/tools/Camera/calib_pics
-GUI/files/tools/Camera/__pycache__/LogitechCamera.cpython-310.pyc
-GUI/files/__pycache__
+/GUI/files/tools/Camera/__pycache__/LogitechCamera.cpython-310.pyc
+/GUI/files/tools/__pycache__
+/GUI/files/__pycache__
+*.pyc

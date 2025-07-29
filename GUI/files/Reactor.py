@@ -5,6 +5,7 @@ import numpy as np
 from typing import List, Dict, Any
 from multiprocessing import Array
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
+from tools.StatelessAction import move_joints
 from tools.log_tools import nice_print_sections
 import queue
 from statistics import median           
@@ -91,8 +92,9 @@ def get_median_tag_offset(tags: List) -> Optional[Tuple[float, float, float]]:
 
 class Reactor(ABC):
     """
-    抽象化的决策模块，用于根据 robot_state 和上一次命令生成下一帧命令。
-    所有 GUI/AI/脚本控制器都应继承并实现 plan 方法。
+    Im thinking Reactor as a abstractize planning class that governs the high-level behavior of the arm
+    For every reactor, the plan function has to be unique 
+    this function would be called in the interval of 0.01s in the serial_sende
     """
     def __init__(self):
         self.prev_speed = [0,0,0,0,0,0]
@@ -100,8 +102,8 @@ class Reactor(ABC):
 
     def giveCommand(self, robot_data: RobotInputData, cmd_data: RobotOutputData):
         """
-        每帧调用的接口，用于统一调用时序逻辑。
-        返回值：新一帧的 RobotOutputData
+        This would be called for every 10ms. It will parse in the cmd_data and modify the shared memory inside cmd_data
+        Then return the cmd_data.pack() -> byte list
         """
         self.plan(robot_data=robot_data, cmd_data=cmd_data)
         if(
@@ -131,8 +133,7 @@ class Reactor(ABC):
     @abstractmethod
     def to_dict(self) -> Dict[str, Any]:
         """
-        抽象方法：返回当前内部状态的字典表示，由外层监控(nice_print_sections)使用。
-        子类应当包含至少 'robot_data' 和 'cmd_data' 两个键。
+        This method is to return a dictionary that logs important info.
         """
         pass
 
@@ -169,29 +170,17 @@ class GUIReactor(Reactor):
             if result_joint_jog != -1 and self.Buttons[2] == 0 and InOut_in[4] == 1: 
                 Robot_mode = "Joint jog"
                 
-                cmd_data.command.value = 123 
-                # Set speed for all other joints to 0
-                for i in range(6):
-                    
-                    cmd_data.speed[i] = 0
-                    # ako je position in veći ili jednak nekom od limita disable tu stranu tipki
-                # Set speed for the clicked joint
-                if(result_joint_jog in [0,1,2,3,4,5]):
-                    if Position_in[result_joint_jog] >= PAROL6_ROBOT.Joint_limits_steps[result_joint_jog][1]:
-                        self.shared_string.value = b'Error: Robot jog -> Position out of range' 
-                    else:
-                        
-                        cmd_data.speed[result_joint_jog ] =  int(np.interp(self.Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog]]))
-                        arr = bytes(str(result_joint_jog + 1), 'utf-8')
-                        self.shared_string.value = b'Log: Joint  ' + arr +   b'  jog  ' 
-                else:
-                    if Position_in[result_joint_jog-6] <= PAROL6_ROBOT.Joint_limits_steps[result_joint_jog-6][0]:
-                        self.shared_string.value = b'Error: Robot jog -> Position out of range'
-                    else:  
-                        
-                        cmd_data.speed[result_joint_jog - 6] =  int(-1 * np.interp(self.Jog_control[0],[0,100],[PAROL6_ROBOT.Joint_min_jog_speed[result_joint_jog-6],PAROL6_ROBOT.Joint_max_jog_speed[result_joint_jog-6]]))
-                        arr = bytes(str(result_joint_jog - 6 + 1), 'utf-8')
-                        self.shared_string.value = b'Log: Joint  ' + arr +   b'  jog  ' 
+                joint_id = result_joint_jog % 6
+                direction = 1 if result_joint_jog < 6 else -1
+
+                # Use Joint Ids to index corresponding min/max jog speed.
+                min_speed = PAROL6_ROBOT.Joint_min_jog_speed[joint_id]
+                max_speed = PAROL6_ROBOT.Joint_max_jog_speed[joint_id]
+
+                speed_val = direction * int(np.interp(self.Jog_control[0], [0, 100], [min_speed, max_speed]))
+
+                msg = move_joints(cmd_data, robot_data, [joint_id], [speed_val])
+                self.shared_string.value = msg.encode()[:120]  # Limit length for shared string.
 
             ######################################################
             ######################################################
