@@ -35,8 +35,7 @@ def commander_loop(commander: Commander, stop_event: Event, sync_sema: Semaphore
     print("[CommanderLoop] Stopped.")
 
 def Monitor_system(
-    robot_data:         RobotInputData,
-    cmd_data:           RobotOutputData,
+    commander:          Commander,
     robot_mode:         Value,
     stop_event:         threading.Event,
 ) -> None:
@@ -45,11 +44,8 @@ def Monitor_system(
 
         # 打印 Commander 内部的数据
         print("-> Commander.robot_data:")
-        toprint = {
-            "Main Robot data": robot_data.to_dict(),
-            "Main Command data": cmd_data.to_dict(),
-        }
-        nice_print_sections(toprint)
+
+        nice_print_sections(commander.to_dict())
 
         time.sleep(LOG_INTERVAL)
 

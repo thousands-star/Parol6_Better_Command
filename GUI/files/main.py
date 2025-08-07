@@ -13,6 +13,10 @@ from Reactor import GUIReactor,FollowTagReactor
 from Commander import Commander, Mode
 from commander_loop import commander_loop, Monitor_system
 
+from robot_api import start_flask_api
+from FlaskKiller import FlaskShutdownThread
+
+
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
@@ -193,7 +197,11 @@ if __name__ == '__main__':
     # process4 = multiprocessing.Process(target=SIMULATOR_process,args =[Command_data,Robot_data,Position_Sim,Buttons, stop_event])
 
     threading.Thread(target=commander_loop, args=(commander, stop_event, sync_sema, ready_sema), daemon=True).start()
-    threading.Thread(target=Monitor_system, args=(Robot_data, Command_data, Robot_mode, stop_event), daemon=True).start()
+    threading.Thread(target=Monitor_system, args=(commander, Robot_mode, stop_event), daemon=True).start()
+    threading.Thread(target=start_flask_api, args=(commander,shared_string), daemon=True).start()
+    flask_killer = FlaskShutdownThread(stop_event)
+    flask_killer.start()
+
 
     processes = [process1, process2]
     # 启动所有进程（加点延时防 race）
