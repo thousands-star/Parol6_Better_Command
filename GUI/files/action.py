@@ -101,11 +101,12 @@ class HomeRobotAction(Action):
             self.shared_string.value = b"Log: Robot homing"
             self.started = True
             return
-
-        # Step 3: Poll homed status
-        if all(h == 1 for h in robot_data.homed[:6]):
-            self.shared_string.value = b"Log: Robot homing done"
-            self.done = True
+        elif all(h == 1 for h in robot_data.homed[:6]):
+                self.shared_string.value = b"Log: Robot homing done"
+                self.done = True
+        else:
+        # Step 4: if not homed but started, toggle command.value to 255.
+            cmd_data.command.value = 255 # Wait.
 
     def is_done(self):
         return self.done

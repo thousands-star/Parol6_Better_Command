@@ -46,7 +46,7 @@ class Commander:
             if new_action:
                 self.action_queue.append(new_action)
 
-        return self.cmd_data.pack()
+        #return self.cmd_data.pack()
 
 
     def to_dict(self) -> Dict[str, any]:

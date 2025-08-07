@@ -11,6 +11,7 @@ import GUI_PAROL_latest
 from tools.shared_struct import RobotInputData, RobotOutputData
 from Reactor import GUIReactor,FollowTagReactor
 from Commander import Commander, Mode
+from commander_loop import commander_loop, Monitor_system
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
@@ -26,22 +27,22 @@ image_path = get_image_path()
 def SIMULATOR_process(Position_out,Robot_data:RobotInputData,Position_Sim,Buttons, stop_event:threading.Event):
     SIMULATOR_Robot.GUI(Position_out,Robot_data,Position_Sim,Buttons, stop_event)
 
-def Arm_communication(General_data,Commander: Commander, Robot_mode, stop_event:threading.Event): 
+def Arm_communication(General_data,robot_data:RobotInputData, cmd_data:RobotOutputData, Robot_mode, stop_event:threading.Event, sync_sema:multiprocessing.Semaphore, ready_sema:multiprocessing.Semaphore): 
 
     global ser, my_os
     Serial_sender_latest.ser = ser
     Serial_sender_latest.my_os = my_os
     Serial_sender_latest.LOGINTERVAL = 3
 
-    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (General_data,Commander,Robot_mode,stop_event))
+    t1 = threading.Thread(target = Serial_sender_latest.Send_data, args = (General_data,cmd_data,Robot_mode,stop_event,sync_sema, ready_sema))
     
-    t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (General_data,Commander,stop_event))
+    t2 = threading.Thread(target = Serial_sender_latest.Receive_data, args = (General_data,robot_data,stop_event))
     
-    t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = (Commander,Robot_mode,stop_event))
+    # t3 = threading.Thread(target = Serial_sender_latest.Monitor_system,args = (Commander,Robot_mode,stop_event))
 
     t1.start()
     t2.start()
-    t3.start()
+    # t3.start()
 
 
     logging.info("[Serial Sender] Serial Sender process was shutted down gracefully.")
@@ -173,12 +174,15 @@ if __name__ == '__main__':
     frame_q = multiprocessing.Queue(maxsize=1)
     display_q = multiprocessing.Queue(maxsize=1)
     stop_event = multiprocessing.Event()
+    sync_event = multiprocessing.Event()
 
+    sync_sema = multiprocessing.Semaphore(0)
+    ready_sema = multiprocessing.Semaphore(0)
     
 
 
  
-    process1 = multiprocessing.Process(target=Arm_communication,args=[General_data,commander, Robot_mode, stop_event,])
+    process1 = multiprocessing.Process(target=Arm_communication,args=[General_data,Robot_data,Command_data, Robot_mode, stop_event,sync_sema,ready_sema])
     
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, Robot_mode, stop_event])
@@ -187,17 +191,23 @@ if __name__ == '__main__':
 
     # Due to unknown reason, it is hard to implement safe close event into process4, We would just disable it since it is not significant in our usage.
     # process4 = multiprocessing.Process(target=SIMULATOR_process,args =[Command_data,Robot_data,Position_Sim,Buttons, stop_event])
-    
 
-    process1.start()
-    time.sleep(1)
-    process2.start()
-    time.sleep(1)
-    process3.start()
+    threading.Thread(target=commander_loop, args=(commander, stop_event, sync_sema, ready_sema), daemon=True).start()
+    threading.Thread(target=Monitor_system, args=(Robot_data, Command_data, Robot_mode, stop_event), daemon=True).start()
 
-    process1.join()
-    process2.join()
-    process3.join()
+    processes = [process1, process2]
+    # 启动所有进程（加点延时防 race）
+    for p in processes:
+        p.start()
+        print(f"[Startup] Started process: {p.name}")
+        time.sleep(1)
+
+    # 等待所有进程退出
+    for p in processes:
+        p.join()
+
+    print("All processes ended. See you again!")
+    sys.exit(0)
 
     logging.info("See you again!")
     sys.exit(0)

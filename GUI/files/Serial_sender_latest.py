@@ -10,8 +10,8 @@ import numpy as np
 from spatialmath import *
 from tools.init_tools import get_my_os, get_image_path
 from tools.log_tools import nice_print_sections
-from tools.shared_struct import RobotInputData
-from multiprocessing import Value, Array
+from tools.shared_struct import RobotInputData, RobotOutputData
+from multiprocessing import Value, Array, Semaphore
 from Commander import Commander
 
 import re
@@ -96,9 +96,11 @@ Robot_mode = "Dummy"
 # Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
 def Send_data(
     General_data:        Array,              # multiprocessing.Array("i", [port, baud])
-    Commander:            Commander,
+    cmd_data:            RobotOutputData,
     Robot_mode:             Value,
-    stop_event:           threading.Event
+    stop_event:           threading.Event,
+    sync_sema:             Semaphore,
+    ready_sema:            Semaphore
 ) -> None:
     
     timer = Timer(INTERVAL_S, warnings=False, precise=True)
@@ -114,7 +116,10 @@ def Send_data(
             logging.debug("Data that PC will send to the robot is: ")
 
             # This function packs data that we will send to the robot
-            s = Commander.giveCommand()
+            sync_sema.release()     
+            ready_sema.acquire()    # 没准备好就卡住
+            s = cmd_data.pack()
+            
 
             logging.debug(s)
             logging.debug("END of data sent to the ROBOT")
@@ -147,7 +152,7 @@ def Send_data(
     logging.info("[Serial Sender] Sender thread was closed properly.")
 
 
-def Receive_data(general_data: list, commander: Commander, exit_event:threading.Event):
+def Receive_data(general_data: list, robot_data: RobotInputData, exit_event:threading.Event):
     """
     Continuously read packets into `shared` via get_data(shared).
     On any read error, attempt to reconnect serial using general_data[0].
@@ -155,7 +160,7 @@ def Receive_data(general_data: list, commander: Commander, exit_event:threading.
     while not exit_event.is_set():
         try:
             # blocks until one full packet is processed into `shared`
-            Get_data(commander.robot_data)
+            Get_data(robot_data)
         except Exception as read_err:
             logging.debug("Read error: %s", read_err)
             # attempt to reconnect
@@ -187,18 +192,6 @@ def Receive_data(general_data: list, commander: Commander, exit_event:threading.
 
 # Dummy test task
 # Best used to show data that we get from the robot and data we get from GUI
-def Monitor_system(
-    commander:          Commander,
-    robot_mode:         Value,
-    stop_event:         threading.Event,
-) -> None:
-    while not stop_event.is_set():
-        # Print everything in one go
-        nice_print_sections(commander.to_dict())
-        print("Robot_mode: " + str(robot_mode.value))
-        time.sleep(LOGINTERVAL)
-    logging.info("[Serial Sender] System Monitor Thread was closed.")
-
 
 def Get_data(shared: RobotInputData):
     """

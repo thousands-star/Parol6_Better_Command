@@ -13,7 +13,9 @@ def move_joints(cmd_data: RobotOutputData, robot_data: RobotInputData,
     """
     assert len(joint_ids) == len(speeds), "joint_ids and speeds must match"
 
-    cmd_data.speed = [0] * 6
+    for i in range(6):
+        cmd_data.speed[i] = 0
+
     log_msgs = []
 
     for jid, spd in zip(joint_ids, speeds):
@@ -35,7 +37,8 @@ def move_joints(cmd_data: RobotOutputData, robot_data: RobotInputData,
         return "MoveJoints: No valid joint"
 
 def stop_all_joints(cmd_data: RobotOutputData):
-    cmd_data.speed = [0] * 6
+    for i in range(6):
+        cmd_data.speed[i] = 0
     cmd_data.command.value = 123  # Standard command code for speed move
 
 def dummy_data(Position_out,Speed_out,Command_out,Position_in):
@@ -98,6 +101,7 @@ def cartesian_jog(cmd_data: RobotOutputData,
     capped_speeds = step_speeds * scale
 
     cmd_data.command.value = 123
-    cmd_data.speed = [int(s) for s in capped_speeds]
+    for i, s in enumerate(capped_speeds):
+        cmd_data.speed[i] = int(s)
 
     return log
