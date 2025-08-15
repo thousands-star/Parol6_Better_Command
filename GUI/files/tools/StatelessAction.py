@@ -90,7 +90,8 @@ def cartesian_jog(cmd_data: RobotOutputData,
     # Scale factor = limit / max(abs(steps))
     abs_max = np.max(np.abs(step_speeds))
     if abs_max == 0:
-        cmd_data.speed = [0] * 6
+        for i in range(6):
+            cmd_data.speed[i] = 0
         return "Log: No motion required"
 
     limit = np.interp(speed_pct, [0, 100],
