@@ -4,6 +4,7 @@ from tools.shared_struct import RobotInputData, RobotOutputData
 from tools.StatelessAction import move_joints, cartesian_jog, dummy_data
 
 class Action(ABC):
+    modal:bool = False
     @abstractmethod
     def step(self, robot_data: RobotInputData, cmd_data: RobotOutputData):
         """Returns a callable like: lambda rdata, cdata: ..."""
@@ -15,6 +16,7 @@ class Action(ABC):
         pass
 
 class SingleJointJogAction(Action):
+    modal = False
     def __init__(self, joint_id: int, speed: int, shared_string = None):
         self.joint_id = joint_id
         self.speed = speed
@@ -37,6 +39,7 @@ class SingleJointJogAction(Action):
         return self.done
     
 class SingleCartesianJogAction(Action):
+    modal = False
     def __init__(
         self,
         dx: float = 0, dy: float = 0, dz: float = 0,
@@ -77,7 +80,7 @@ class SingleCartesianJogAction(Action):
             interval_s=self.interval_s
         )
         if self.shared_string is not None:
-            self.shared_string.value = msg.encode()[:120]
+            self.shared_string.value = msg.encode()[:120] 
         return None
 
     def is_done(self):
@@ -85,6 +88,7 @@ class SingleCartesianJogAction(Action):
 
     
 class HomeRobotAction(Action):
+    modal = True
     def __init__(self, shared_string):
         self.done = False
         self.started = False
@@ -112,6 +116,7 @@ class HomeRobotAction(Action):
         return self.done
     
 class EnableRobotAction(Action):
+    modal = False
     def __init__(self, shared_string):
         self.done = False
         self.shared_string = shared_string
@@ -126,6 +131,7 @@ class EnableRobotAction(Action):
 
 
 class DisableRobotAction(Action):
+    modal = False
     def __init__(self, shared_string):
         self.done = False
         self.shared_string = shared_string
@@ -140,6 +146,7 @@ class DisableRobotAction(Action):
 
 
 class ClearErrorAction(Action):
+    modal = False
     def __init__(self, shared_string):
         self.done = False
         self.shared_string = shared_string
@@ -153,6 +160,7 @@ class ClearErrorAction(Action):
     def is_done(self): return self.done
 
 class DummyAction(Action):
+    modal = False
     def __init__(self, position):
         self.done = False
         self.position = position

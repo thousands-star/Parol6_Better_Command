@@ -42,6 +42,9 @@ class Commander:
                 stateless_fn(self.robot_data, self.cmd_data)
             if self.current_action.is_done():
                 self.action_queue.pop(0)
+        
+        if self._busy_modal() is True:
+            return
 
         # 2. 自动补充新动作（如果不在 API 模式下）
         if (self.get_mode() is not Mode.API) and len(self.action_queue) < self.max_queue_length:
@@ -56,6 +59,12 @@ class Commander:
 
         #return self.cmd_data.pack()
 
+    def _busy_modal(self) -> bool:
+        """Check whether the action is modal."""
+        if not self.action_queue:
+            return False
+        head = self.action_queue[0]
+        return getattr(head, "modal", False) and (not head.is_done())
 
     def inject_action(self, action: Action) -> bool:
         """API 注入动作"""
