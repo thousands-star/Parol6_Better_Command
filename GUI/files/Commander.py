@@ -14,6 +14,7 @@ class Mode(IntEnum):
     FOLLOW_TAG = 1
     AUTO_NAV   = 2
     API        = 3
+    IBVS       = 4
 
 class Commander:
     def __init__(self,

@@ -9,7 +9,7 @@ from tools.init_tools import init_serial, get_image_path,get_my_os
 import Serial_sender_latest
 import GUI_PAROL_latest
 from tools.shared_struct import RobotInputData, RobotOutputData
-from Reactor import GUIReactor,FollowTagReactor
+from Reactor import GUIReactor,FollowTagReactor, IBVSReactor
 from Commander import Commander, Mode
 from commander_loop import commander_loop, Monitor_system
 
@@ -62,41 +62,66 @@ def GUI_process(shared_string,Command_data:RobotOutputData,
         
         logging.info("[GUI] process was shutted down properly.")
 
-def Camera_process(frame_q, display_q, detected_tags, stop_event):
+def Eye_in_hand_process(frame_q, display_q, detected_tags, uv_queue, stop_event):
     """
-    Start 3 threads:
-    - camera_capture_thread: captures images and puts them into frame_q
-    - tag_detector_thread: detects AprilTags from frame_q
-    - overlay_thread: draws overlays and puts into display_q
+    Start 5 threads:
+    - camera_capture_thread: frames -> proc_q & raw_display_q
+    - tag_detector_thread: detections -> Vision.detected_tags + detected_tags queue
+    - uv_publisher_thread: detected_tags -> uv_multi_q  (list of up to 2)
+    - uv_adapter_thread: uv_multi_q -> uv_queue (single (u,v) for IBVS)
+    - overlay_thread: raw_display_q + uv_multi_q -> display_q (GUI)
     """
-    from tools.Camera.CameraBase import LogitechCamera
-    from Vision import camera_capture_thread, tag_detector_thread, overlay_thread
-    
+    from tools.Camera.CameraBase import LogitechCamera, ESP32Camera
+    from Vision import camera_capture_thread, tag_detector_thread, overlay_thread, uv_publisher_thread,uv_adapter_thread
+
     tag_lock = threading.Lock()
+    cam = ESP32Camera(url="http://172.20.10.2", mode="stream")
+    import queue
+    # local queues inside this process
+    raw_display_q = multiprocessing.Queue(maxsize=2)   # camera -> overlay
+    uv_multi_q    = queue.Queue(maxsize=1)   # publisher(list) -> overlay & adapter
 
-    cam = LogitechCamera(source=1, width=640, height=480, fps=30)
+    # threads
+    t1 = threading.Thread(target=camera_capture_thread,
+                          args=(cam, frame_q, raw_display_q, stop_event),
+                          daemon=True)
 
-    t1 = threading.Thread(target=camera_capture_thread, args=(cam, frame_q,stop_event), daemon=True)
-    t2 = threading.Thread(target=tag_detector_thread, args=(frame_q,detected_tags, tag_lock, stop_event), daemon=True)
-    t3 = threading.Thread(target=overlay_thread, args=(frame_q, display_q, tag_lock, stop_event), daemon=True)
+    # Use your detected_tags queue here; Vision.tag_detector_thread supports queue snapshots
+    t2 = threading.Thread(target=tag_detector_thread,
+                          args=(frame_q, detected_tags, tag_lock, stop_event),
+                          daemon=True)
 
-    logging.info("[Camera Process] Starting threads (capture, detect, overlay)...")
-    t1.start()
-    t2.start()
-    t3.start()
-    t1.join()
-    t2.join()
-    t3.join()
+    # NEW: publish up to two tags as list
+    t3 = threading.Thread(target=uv_publisher_thread,
+                          args=(tag_lock, uv_multi_q, stop_event),
+                          kwargs=dict(preferred_tag_ids=None, publish_hz=30.0, image_center=(320, 240), max_tags=2),
+                          daemon=True)
 
-    frame_q.close()
-    display_q.close()
-    detected_tags.close()
-    frame_q.cancel_join_thread()
-    display_q.cancel_join_thread()
-    detected_tags.cancel_join_thread()
+    # NEW: adapt list -> single (u,v) for IBVSReactor which expects one point
+    t4 = threading.Thread(target=uv_adapter_thread,
+                          args=(uv_multi_q, uv_queue, stop_event),
+                          daemon=True)
+
+    # overlay consumes raw_display_q and uv_multi_q, outputs to the display_q you passed to GUI
+    t5 = threading.Thread(target=overlay_thread,
+                          args=(raw_display_q, display_q, uv_multi_q, tag_lock, stop_event),
+                          daemon=True)
+
+    logging.info("[Camera Process] Starting threads (capture, detect, publish, adapt, overlay)...")
+    for t in (t1, t2, t3, t4, t5):
+        t.start()
+    for t in (t1, t2, t3, t4, t5):
+        t.join()
+
+    # cleanup
+    for q in (frame_q, display_q, detected_tags):
+        try:
+            q.close()
+            q.cancel_join_thread()
+        except Exception:
+            pass
 
     logging.info("[Camera Process] All threads exited, cleaning up and terminating process.")
-
 
 if __name__ == '__main__':
 
@@ -170,7 +195,18 @@ if __name__ == '__main__':
     
     followtagreactor = FollowTagReactor(detected_tags=detected_tags, jog_control=Jog_control,shared_string=shared_string)
     
-    plugins = {Mode.GUI: guireactor, Mode.FOLLOW_TAG: followtagreactor}
+    uv_queue = multiprocessing.Queue(maxsize=1)
+
+    ibvs_reactor = IBVSReactor(
+        uv_q=uv_queue,                 # 这里传“像素坐标 (u,v)”的队列
+        jog_control=Jog_control,
+        shared_string=shared_string,
+        depth_est=0.45,                # 先给一个大概深度，后续可在线更新
+        lam=0.6,
+        frame="TRF"
+    )
+
+    plugins = {Mode.GUI: guireactor, Mode.FOLLOW_TAG: followtagreactor, Mode.IBVS: ibvs_reactor}
     
     commander = Commander(cmd_data=Command_data, robot_data= Robot_data, plugins=plugins, current_mode=Robot_mode)
     
@@ -191,7 +227,7 @@ if __name__ == '__main__':
     process2 = multiprocessing.Process(target=GUI_process,args=[shared_string,Command_data,Robot_data,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons,display_q, Robot_mode, stop_event])
 
-    process3 = multiprocessing.Process(target=Camera_process, args=[frame_q, display_q, detected_tags, stop_event])
+    process3 = multiprocessing.Process(target=Eye_in_hand_process, args=[frame_q, display_q, detected_tags, uv_queue, stop_event])
 
     # Due to unknown reason, it is hard to implement safe close event into process4, We would just disable it since it is not significant in our usage.
     # process4 = multiprocessing.Process(target=SIMULATOR_process,args =[Command_data,Robot_data,Position_Sim,Buttons, stop_event])
@@ -203,7 +239,7 @@ if __name__ == '__main__':
     flask_killer.start()
 
 
-    processes = [process1, process2]
+    processes = [process1, process2,process3]
     # 启动所有进程（加点延时防 race）
     for p in processes:
         p.start()

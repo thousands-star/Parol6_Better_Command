@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import cv2
 import platform
 import logging
+import requests, numpy as np
 
 # Setting Up format for logging
 logging.basicConfig(level=logging.DEBUG,
@@ -92,6 +93,54 @@ class CameraBase(ABC):
         """
         self.close()
 
+class ESP32Camera(CameraBase):
+    """
+    ESP32-CAM implementation using HTTP MJPEG stream or single-frame capture.
+    """
+
+    def __init__(self, url: str, mode: str = "stream"):
+        """
+        :param url: Base URL of ESP32-CAM (e.g. "http://192.168.1.100")
+        :param mode: "stream" for continuous MJPEG, "capture" for single snapshot
+        """
+        source = url if mode == "stream" else 0
+        super().__init__(source)
+        self.url = url.rstrip("/")
+        self.mode = mode
+        logging.debug(f"ESP32Camera initialized in {mode} mode with URL={self.url}")
+
+    def open(self) -> bool:
+        if self.mode == "stream":
+            # MJPEG streaming
+            self._capture = cv2.VideoCapture(f"{self.url}:81/stream")
+            return self._capture.isOpened()
+        else:
+            # 单帧模式，不使用 VideoCapture
+            return True
+
+    def read(self):
+        if self.mode == "stream":
+            frame = super().read()
+        else:
+
+            resp = requests.get(f"{self.url}/capture", timeout=5)
+            if resp.status_code != 200:
+                raise RuntimeError("Failed to capture image from ESP32-CAM")
+            arr = np.frombuffer(resp.content, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if frame is None:
+                raise RuntimeError("Failed to decode JPEG from ESP32-CAM")
+
+        # === 在这里加翻转 ===
+        frame = cv2.flip(frame, 1)   # 左右翻转
+        # frame = cv2.flip(frame, 0) # 如果要上下翻转，就用这个
+
+        return frame
+
+
+    def process_frame(self, frame):
+        # 默认转换为 RGB
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
 
 # Logitech Camera as a child class.

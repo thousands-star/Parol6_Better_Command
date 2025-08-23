@@ -5,13 +5,13 @@ import numpy as np
 from typing import List, Dict, Any
 from multiprocessing import Array
 import tools.PAROL6_ROBOT as PAROL6_ROBOT 
-from tools.StatelessAction import move_joints, dummy_data, cartesian_jog
 from action import SingleJointJogAction, SingleCartesianJogAction, HomeRobotAction, EnableRobotAction, DisableRobotAction, DummyAction, ClearErrorAction
 from tools.log_tools import nice_print_sections
 from action import Action
 import queue
 from statistics import median           
 from typing import List, Tuple, Optional
+from tools.speed_tools import percent_to_joint_speed
 
 INTERVAL_S = 0.01
 Robot_mode = "Dummy"
@@ -97,17 +97,10 @@ class GUIReactor(Reactor):
             
             # JOINT JOG (regular speed control) 0x123 # -1 is value if nothing is pressed
             if result_joint_jog != -1 and self.Buttons[2] == 0 and InOut_in[4] == 1: 
-                Robot_mode = "Joint jog"
-                
                 joint_id = result_joint_jog % 6
                 direction = 1 if result_joint_jog < 6 else -1
 
-                # Use Joint Ids to index corresponding min/max jog speed.
-                min_speed = PAROL6_ROBOT.Joint_min_jog_speed[joint_id]
-                max_speed = PAROL6_ROBOT.Joint_max_jog_speed[joint_id]
-
-                speed_val = direction * int(np.interp(self.Jog_control[0], [0, 100], [min_speed, max_speed]))
-
+                speed_val = percent_to_joint_speed(joint_id=joint_id, percent=self.Jog_control[0], direction=direction)
                 return SingleJointJogAction(joint_id, speed_val,self.shared_string)
 
             ######################################################
@@ -279,5 +272,100 @@ class FollowTagReactor(Reactor):
         return {
             "last_offset": {"dx": self.dx, "dy": self.dy, "dz": self.dz},
             **tags_dict
+        }
+
+class IBVSReactor(Reactor):
+    """
+    Eye-in-Hand IBVS (Image-Based Visual Servoing).
+    每个周期通过图像误差计算一次笛卡尔微小位移，返回 SingleCartesianJogAction。
+    """
+    def __init__(self, uv_q, jog_control, shared_string,
+                 depth_est: float = 0.5,   # 目标到相机的初始深度估计(米)
+                 lam: float = 0.6,         # 控制增益
+                 frame: str = "TRF"):      # 在 TRF（工具坐标）下执行最自然
+        super().__init__()
+        self.uv_q = uv_q
+        self.jog_control = jog_control
+        self.shared_string = shared_string
+        self.K = np.loadtxt(r"C:\Users\Public\fyp\PAROL-commander-software-main\GUI\files\tools\Camera\param\camera_intrinsic_matrix.csv", delimiter=",")  # 你前面标定好的内参
+        
+        self.depth_est = float(depth_est)
+        self.lam = float(lam)
+        self.dt = INTERVAL_S
+        self.frame = frame.upper()
+        self.last_uv = None  # (u,v)
+        # 便于调试监控
+        self._last_e = (0.0, 0.0)
+        self._last_v = (0.0, 0.0, 0.0)
+
+    def plan(self, robot_data: RobotInputData):
+        """
+        读入最新 (u,v)，计算 IBVS 控制律，转成一次微小位移，返回 SingleCartesianJogAction。
+        """
+        # 1) 读取最新的像素坐标 (u,v)，若队列为空则复用上次
+        try:
+            self.last_uv = self.uv_q.get_nowait()
+        except Exception:
+            pass
+
+        if self.last_uv is None or self.K is None:
+            # 没有目标就发一个“空动作”把速度清零
+            return DummyAction(robot_data.position)
+
+        u, v = float(self.last_uv[0]), float(self.last_uv[1])
+        fx, fy = self.K[0, 0], self.K[1, 1]
+        cx, cy = self.K[0, 2], self.K[1, 2]
+
+        # 2) 归一化图像坐标（期望为 0,0）
+        x = (u - cx) / fx
+        y = (v - cy) / fy
+        e = np.array([[x], [y]])  # e = s - s*, s*=(0,0)
+        self._last_e = (x, y)
+
+        # 3) Interaction Matrix L (2x6)
+        Z = max(1e-3, float(self.depth_est))
+        L = np.array([
+            [-1/Z,   0,   x/Z,   x*y, -(1 + x*x),    y],
+            [  0 , -1/Z,  y/Z, 1 + y*y,   -x*y,     -x],
+        ], dtype=float)
+
+        # 4) 控制律 v_c = -λ L^+ e
+        L_pinv = np.linalg.pinv(L)
+        v_c = -self.lam * (L_pinv @ e)  # (6,1)
+        vx, vy, vz, wx, wy, wz = v_c.flatten().tolist()
+        self._last_v = (vx, vy, vz)
+
+        # 只先做平移控制，把速度换成本周期的微小位移
+        dx, dy, dz = vx * self.dt, vy * self.dt, vz * self.dt
+
+        # 5) 安全限幅：不超过每周期最大线速度对应的步长
+        max_step = PAROL6_ROBOT.Cartesian_linear_velocity_max_JOG * self.dt
+        vec = np.array([dx, dy, dz], dtype=float)
+        nrm = float(np.linalg.norm(vec))
+        if nrm > max_step and nrm > 0:
+            vec *= (max_step / nrm)
+            dx, dy, dz = vec.tolist()
+
+        # 可选：极小误差死区，避免抖动
+        if abs(x) < 1e-3 and abs(y) < 1e-3:
+            return DummyAction(robot_data.position)
+
+        # 6) 返回一次性的“笛卡尔微移” Action，由 commander 执行
+        return SingleCartesianJogAction(
+            dx=dx, dy=dy, dz=dz,
+            rx=0.0, ry=0.0, rz=0.0,       # 先不控姿态，后续可加入 wx,wy,wz
+            frame=self.frame,             # Eye-in-Hand 下用 TRF 更合适
+            speed_pct=self.jog_control[0],
+            interval_s=self.dt,
+            shared_string=self.shared_string
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "e_norm": {"x": round(self._last_e[0], 5), "y": round(self._last_e[1], 5)},
+            "v_lin":  {"vx": round(self._last_v[0], 4), "vy": round(self._last_v[1], 4), "vz": round(self._last_v[2], 4)},
+            "lam": self.lam,
+            "Z_est": self.depth_est,
+            "frame": self.frame,
         }
         

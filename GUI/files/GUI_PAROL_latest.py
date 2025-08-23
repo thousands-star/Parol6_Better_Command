@@ -879,6 +879,11 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
             robot_mode.value = Mode.AUTO_NAV # AutoNav mode enum value
             shared_string.value = b"Toggles to Auto Nav mode"
 
+        def set_mode_ibvs():
+            selected_mode.set("IBVS")
+            robot_mode.value = Mode.IBVS # AutoNav mode enum value
+            shared_string.value = b"Toggles to IBVS mode"
+
         selected_mode = tk.StringVar(value="GUI")
 
 
@@ -890,6 +895,9 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
 
         app.auto_mode_button = customtkinter.CTkRadioButton(master=app.commands_frame, text="Auto Nav", variable=selected_mode, value="AutoNav", command=set_mode_auto)
         app.auto_mode_button.grid(row=3, column=0, pady=5, padx=20, sticky="w")
+
+        app.auto_mode_button = customtkinter.CTkRadioButton(master=app.commands_frame, text="IBVS", variable=selected_mode, value="IBVS", command=set_mode_ibvs)
+        app.auto_mode_button.grid(row=4, column=0, pady=5, padx=20, sticky="w")
 
     def Change_gripper_ID():
         ID_var = app.grip_ID_entry.get()
