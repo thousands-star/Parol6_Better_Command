@@ -108,6 +108,10 @@ class Commander:
             mode = 0
         else:
             mode = self.current_mode.value
+
+        if self.current_action is None:
+            self.current_action = DummyAction(0)
+
         return {
             "robot_data": self.robot_data.to_dict(),
             "cmd_data": self.cmd_data.to_dict(),
@@ -116,6 +120,6 @@ class Commander:
                 "queue length": len(self.action_queue),
                 "enabled": self._enabled.value,
                 "mode": self.current_mode.value,
-                "current action": self.current_action,
+                "current action": self.current_action.name(),
             }
         }

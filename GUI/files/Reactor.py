@@ -274,71 +274,193 @@ class FollowTagReactor(Reactor):
             **tags_dict
         }
 
+import os
 class IBVSReactor(Reactor):
     """
-    Eye-in-Hand IBVS (Image-Based Visual Servoing).
-    每个周期通过图像误差计算一次笛卡尔微小位移，返回 SingleCartesianJogAction。
+    Eye-in-Hand IBVS reactor that uses (two) AprilTags' image centers.
+    - tags_q: multiprocessing.Queue or queue.Queue that yields a list of tag detections (same objects as Vision.py)
+    - jog_control: multiprocessing.Array (same as GUI usage) 用于取速度百分比
+    - shared_string: multiprocessing.Array 用于显示日志
+    - depth_est: 初始深度估计 (m)
+    - lam: 控制增益
+    - frame: "TRF" or "WRF" — Eye-in-Hand 推荐 "TRF"
+    - target_ids: Optional[List[int]] 如果提供，只使用这些 id（前两个）来计算中心
     """
-    def __init__(self, uv_q, jog_control, shared_string,
-                 depth_est: float = 0.5,   # 目标到相机的初始深度估计(米)
-                 lam: float = 0.6,         # 控制增益
-                 frame: str = "TRF"):      # 在 TRF（工具坐标）下执行最自然
+    def __init__(self, tags_q, jog_control, shared_string,
+                 depth_est: float = 0.5,
+                 lam: float = 0.6,
+                 frame: str = "TRF",
+                 target_ids: Optional[List[int]] = None):
         super().__init__()
-        self.uv_q = uv_q
+        self.tags_q = tags_q
         self.jog_control = jog_control
         self.shared_string = shared_string
-        self.K = np.loadtxt(r"C:\Users\Public\fyp\PAROL-commander-software-main\GUI\files\tools\Camera\param\camera_intrinsic_matrix.csv", delimiter=",")  # 你前面标定好的内参
-        
         self.depth_est = float(depth_est)
         self.lam = float(lam)
         self.dt = INTERVAL_S
         self.frame = frame.upper()
-        self.last_uv = None  # (u,v)
-        # 便于调试监控
+        self.target_ids = target_ids
+
+        # load camera intrinsics from repo same path as Vision.py
+        try:
+            param_dir = os.path.join(os.path.dirname(__file__), "tools", "Camera", "param")
+            self.K = np.loadtxt(os.path.join(param_dir, "camera_intrinsic_matrix.csv"), delimiter=',')
+        except Exception as exc:
+            self.K = None
+            print("[IBVS] Warning: cannot load camera intrinsics:", exc)
+
+        # debug / telemetry
         self._last_e = (0.0, 0.0)
         self._last_v = (0.0, 0.0, 0.0)
+        self._last_uv = None
 
-    def plan(self, robot_data: RobotInputData):
-        """
-        读入最新 (u,v)，计算 IBVS 控制律，转成一次微小位移，返回 SingleCartesianJogAction。
-        """
-        # 1) 读取最新的像素坐标 (u,v)，若队列为空则复用上次
+    def _read_tags(self):
+        """Try get latest tag list without blocking; return list or None"""
         try:
-            self.last_uv = self.uv_q.get_nowait()
+            tags = self.tags_q.get_nowait()
+            return tags
         except Exception:
-            pass
+            return None
 
-        if self.last_uv is None or self.K is None:
-            # 没有目标就发一个“空动作”把速度清零
+    def plan(self, robot_data):
+        """
+        Read tags -> compute pixel centroid -> IBVS -> SingleCartesianJogAction.
+        Compatible with:
+        - tags_q producing list of AprilTag objects (with .center, .pose_t)
+        - tags_q producing list of tuples (id,u,v) or (u,v)
+        - tags_q producing a single tuple (id,u,v) or (u,v)
+        - mixed lists
+        """
+        # 1) read tags snapshot (non-blocking via helper)
+        tags = self._read_tags()  # may be None, a list, or a single tuple
+
+        # quick exit if no data or no intrinsics
+        if (not tags) or (self.K is None):
             return DummyAction(robot_data.position)
 
-        u, v = float(self.last_uv[0]), float(self.last_uv[1])
-        fx, fy = self.K[0, 0], self.K[1, 1]
-        cx, cy = self.K[0, 2], self.K[1, 2]
+        # normalize tags into a list
+        if not isinstance(tags, (list, tuple)):
+            tags_list = [tags]
+        else:
+            tags_list = list(tags)
 
-        # 2) 归一化图像坐标（期望为 0,0）
+        # 2) pick usable entries (filter by target_ids if provided) and keep original order
+        usable = []
+        if self.target_ids:
+            ids_set = set(self.target_ids)
+            for t in tags_list:
+                tid = None
+                if hasattr(t, "tag_id"):
+                    tid = getattr(t, "tag_id", None)
+                elif isinstance(t, (tuple, list)) and len(t) >= 1:
+                    try:
+                        tid = int(t[0])
+                    except Exception:
+                        tid = None
+                if tid in ids_set:
+                    usable.append(t)
+            usable = usable[:2]
+        else:
+            usable = tags_list[:2]
+
+        if len(usable) < 1:
+            return DummyAction(robot_data.position)
+
+        # 3) extract pixel centers from usable items (support object and tuple formats)
+        centers = []
+        bad_cnt = 0
+        for t in usable:
+            parsed = False
+            if hasattr(t, "center"):
+                try:
+                    cx = float(t.center[0])
+                    cy = float(t.center[1])
+                    centers.append((cx, cy))
+                    parsed = True
+                except Exception:
+                    parsed = False
+            if not parsed and isinstance(t, (tuple, list)):
+                try:
+                    if len(t) >= 3:
+                        # (id, u, v)
+                        cx = float(t[1]); cy = float(t[2])
+                        centers.append((cx, cy)); parsed = True
+                    elif len(t) == 2:
+                        # (u, v)
+                        cx = float(t[0]); cy = float(t[1])
+                        centers.append((cx, cy)); parsed = True
+                except Exception:
+                    parsed = False
+            if not parsed:
+                bad_cnt += 1
+
+        if bad_cnt:
+            # short-lived warning to help debug mixed inputs (optional)
+            try:
+                import logging
+                logging.getLogger(__name__).debug("IBVSReactor.plan: skipped %d unusable tag items", bad_cnt)
+            except Exception:
+                pass
+
+        if not centers:
+            # nothing usable
+            self._last_uv = None
+            return DummyAction(robot_data.position)
+
+        # centroid (works for 1 or 2 points)
+        u = float(np.mean([c[0] for c in centers]))
+        v = float(np.mean([c[1] for c in centers]))
+        self._last_uv = (u, v)
+
+        # 4) intrinsics
+        fx, fy = float(self.K[0,0]), float(self.K[1,1])
+        cx, cy = float(self.K[0,2]), float(self.K[1,2])
+
+        # normalized image coord (desired is image center -> (0,0) in normalized coords)
         x = (u - cx) / fx
         y = (v - cy) / fy
-        e = np.array([[x], [y]])  # e = s - s*, s*=(0,0)
         self._last_e = (x, y)
 
-        # 3) Interaction Matrix L (2x6)
-        Z = max(1e-3, float(self.depth_est))
+        # 5) estimate depth Z from pose_t if available (only from object entries)
+        Z_vals = []
+        for t in usable:
+            if hasattr(t, "pose_t"):
+                try:
+                    z = float(np.array(t.pose_t).flatten()[2])
+                    Z_vals.append(z)
+                except Exception:
+                    pass
+        if Z_vals:
+            Z = float(np.median(Z_vals))
+            Z = max(Z, 1e-3)
+            # simple low-pass update of running estimate
+            self.depth_est = 0.8 * self.depth_est + 0.2 * Z
+        else:
+            Z = max(1e-3, float(self.depth_est))
+
+        # 6) IBVS interaction matrix and control
         L = np.array([
-            [-1/Z,   0,   x/Z,   x*y, -(1 + x*x),    y],
-            [  0 , -1/Z,  y/Z, 1 + y*y,   -x*y,     -x],
+            [-1.0/Z,    0.0,    x/Z,    x*y,  -(1 + x*x),   y],
+            [  0.0, -1.0/Z,    y/Z,  1 + y*y,   -x*y,     -x],
         ], dtype=float)
 
-        # 4) 控制律 v_c = -λ L^+ e
-        L_pinv = np.linalg.pinv(L)
-        v_c = -self.lam * (L_pinv @ e)  # (6,1)
-        vx, vy, vz, wx, wy, wz = v_c.flatten().tolist()
+        try:
+            L_pinv = np.linalg.pinv(L)
+            e = np.array([[x],[y]])
+            v_c = -self.lam * (L_pinv @ e)   # (6,1)
+            vx, vy, vz, wx, wy, wz = v_c.flatten().tolist()
+        except Exception as exc:
+            if self.shared_string is not None:
+                try: self.shared_string.value = f"IBVS: pinv failed {exc}".encode()[:120]
+                except: pass
+            return DummyAction(robot_data.position)
+
         self._last_v = (vx, vy, vz)
 
-        # 只先做平移控制，把速度换成本周期的微小位移
+        # 7) only use translation for now (camera frame)
         dx, dy, dz = vx * self.dt, vy * self.dt, vz * self.dt
 
-        # 5) 安全限幅：不超过每周期最大线速度对应的步长
+        # 8) safety: limit per-loop linear displacement
         max_step = PAROL6_ROBOT.Cartesian_linear_velocity_max_JOG * self.dt
         vec = np.array([dx, dy, dz], dtype=float)
         nrm = float(np.linalg.norm(vec))
@@ -346,26 +468,31 @@ class IBVSReactor(Reactor):
             vec *= (max_step / nrm)
             dx, dy, dz = vec.tolist()
 
-        # 可选：极小误差死区，避免抖动
-        if abs(x) < 1e-3 and abs(y) < 1e-3:
+        # 9) deadzone to avoid jitter
+        PIX_DEAD_NORM = 1e-3
+        if abs(x) < PIX_DEAD_NORM and abs(y) < PIX_DEAD_NORM:
             return DummyAction(robot_data.position)
 
-        # 6) 返回一次性的“笛卡尔微移” Action，由 commander 执行
-        return SingleCartesianJogAction(
-            dx=dx, dy=dy, dz=dz,
-            rx=0.0, ry=0.0, rz=0.0,       # 先不控姿态，后续可加入 wx,wy,wz
-            frame=self.frame,             # Eye-in-Hand 下用 TRF 更合适
-            speed_pct=self.jog_control[0],
+        # 10) return action (TRF/WRF per self.frame)
+        action = SingleCartesianJogAction(
+            dx=dx, dy=-dz, dz=dy,
+            rx=0.0, ry=0.0, rz=0.0,
+            frame=self.frame,
+            speed_pct=self.jog_control[0] if self.jog_control is not None else 50,
             interval_s=self.dt,
             shared_string=self.shared_string
         )
+        return action
+
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "last_uv": {"u": None if self._last_uv is None else round(self._last_uv[0], 2),
+                        "v": None if self._last_uv is None else round(self._last_uv[1], 2)},
             "e_norm": {"x": round(self._last_e[0], 5), "y": round(self._last_e[1], 5)},
-            "v_lin":  {"vx": round(self._last_v[0], 4), "vy": round(self._last_v[1], 4), "vz": round(self._last_v[2], 4)},
+            "v_lin": {"vx": round(self._last_v[0], 5), "vy": round(self._last_v[1], 5), "vz": round(self._last_v[2], 5)},
             "lam": self.lam,
-            "Z_est": self.depth_est,
+            "Z_est": round(self.depth_est, 4),
             "frame": self.frame,
         }
         

@@ -16,6 +16,8 @@ logging.basicConfig(level = logging.DEBUG,
 logging.disable(logging.DEBUG)
 
 detected_tags = []
+detected_uvs = []         
+uv_lock = threading.Lock()  
 # ========================== THREADS ==========================
 
 def camera_capture_thread(cam: LogitechCamera, proc_q: queue.Queue, display_q: queue.Queue, exit_event: threading.Event):
@@ -85,9 +87,9 @@ def tag_detector_thread(proc_q: queue.Queue, publish_tag: queue.Queue, tag_lock:
 
     logging.debug("Tag Detector thread closed as exit_event detected.")
 
-def overlay_thread(display_q: queue.Queue, overlaid_q: queue.Queue, uv_queue: queue.Queue, tag_lock: threading.Lock, exit_event: threading.Event):
-    global detected_tags
-    last_uv_list = None  # 记住最近一次的 [(id,u,v), ...]
+def overlay_thread(display_q: queue.Queue, overlaid_q: queue.Queue, tag_lock: threading.Lock, exit_event: threading.Event):
+    global detected_tags, detected_uvs, uv_lock
+    last_uv_list = None
 
     while not exit_event.is_set():
         try:
@@ -95,7 +97,7 @@ def overlay_thread(display_q: queue.Queue, overlaid_q: queue.Queue, uv_queue: qu
         except queue.Empty:
             continue
 
-        # 叠 Apriltag 边框/ID（原逻辑）
+        # draw tags (same as before)
         with tag_lock:
             for tag in detected_tags:
                 center = (int(tag.center[0]), int(tag.center[1]))
@@ -103,20 +105,21 @@ def overlay_thread(display_q: queue.Queue, overlaid_q: queue.Queue, uv_queue: qu
                 cv2.putText(frame, f"ID:{tag.tag_id}", (center[0] + 10, center[1]),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        # 取最新一包 uv（可能是 list，也可能是老格式 tuple）
+        # === 从 detected_uvs 读取（不会被外面消费掉） ===
         try:
-            while True:
-                last_uv_list = uv_queue.get_nowait()
-        except queue.Empty:
-            pass
+            uv_lock.acquire()
+            if detected_uvs:
+                last_uv_list = list(detected_uvs)   # 拷贝一份用于绘制
+            else:
+                last_uv_list = None
+        finally:
+            uv_lock.release()
 
-        # 画 (id,u,v)
+        # 兼容老格式 tuple (u,v)
         if last_uv_list is not None:
-            # 兼容老的 (u,v)
             if isinstance(last_uv_list, tuple) and len(last_uv_list) == 2:
                 last_uv_list = [(-1, float(last_uv_list[0]), float(last_uv_list[1]))]
 
-            # 给每个点上色并标注
             palette = [(255, 0, 255), (0, 128, 255), (255, 128, 0), (128, 255, 0)]
             for i, (tid, u, v) in enumerate(last_uv_list):
                 u_i, v_i = int(u), int(v)
@@ -125,7 +128,7 @@ def overlay_thread(display_q: queue.Queue, overlaid_q: queue.Queue, uv_queue: qu
                 cv2.putText(frame, f"({tid}) uv=({u_i},{v_i})", (u_i + 10, v_i - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-        # 推给显示
+        # push to display queue
         if overlaid_q.full():
             try: overlaid_q.get_nowait()
             except: pass
@@ -135,6 +138,7 @@ def overlay_thread(display_q: queue.Queue, overlaid_q: queue.Queue, uv_queue: qu
             pass
 
     logging.debug("Camera Overlay thread closed as exit_event detected.")
+
 
 
 
@@ -171,44 +175,39 @@ def _tag_area(tag) -> float:
 # 放在现有线程函数附近
 def uv_publisher_thread(
     tag_lock: threading.Lock,
-    uv_queue: queue.Queue,
+    publish_uv: queue.Queue,
     exit_event: threading.Event,
-    preferred_tag_ids: Optional[Sequence[int]] = None,  # <- 支持多个ID
+    preferred_tag_ids: Optional[Sequence[int]] = None,
     publish_hz: float = 20.0,
     image_center: Optional[tuple] = None,
-    max_tags: int = 2,                                  # <- 最多发布几个
+    max_tags: int = 2,
 ):
     """
-    发布最多 max_tags 个 (id,u,v)，按以下策略依次选：
-      1) preferred_tag_ids 中出现的；
-      2) 距离 image_center 最近的；
-      3) 面积最大的。
-    uv_queue 建议 maxsize=1，只保留最新列表。
+    从全局 detected_tags 中挑出最多 max_tags 个点，
+    写入全局 detected_uvs（加锁），并把快照放到 publish_uv（供外部进程/线程消费）。
     """
     dt = 1.0 / max(1.0, float(publish_hz))
     pref_ids = set(int(x) for x in preferred_tag_ids) if preferred_tag_ids else set()
-    global detected_tags
-    detected_tags_container = detected_tags
+    global detected_tags, detected_uvs, uv_lock
 
     while not exit_event.is_set():
         try:
-            # 1) 快照
-            tags_snapshot = list(detected_tags_container)
+            # snapshot tags (no lock on tag list here because tag lock already protects modification)
+            with tag_lock:
+                tags_snapshot = list(detected_tags)
 
             if not tags_snapshot:
                 time.sleep(dt)
                 continue
 
-            chosen: List = []
-
-            # 工具函数
+            chosen = []
             def add_if_ok(t):
                 if t is None: return
                 if any(getattr(t, 'tag_id', None) == getattr(x, 'tag_id', None) for x in chosen):
                     return
                 chosen.append(t)
 
-            # 2.1 先挑偏好ID
+            # 1) preferred ids
             if pref_ids:
                 for t in tags_snapshot:
                     try:
@@ -218,14 +217,14 @@ def uv_publisher_thread(
                     except Exception:
                         continue
 
-            # 2.2 再按中心最近补满
+            # 2) fill by distance to center
             if len(chosen) < max_tags and image_center is not None:
                 cx, cy = image_center
                 cand = []
                 for t in tags_snapshot:
                     try:
                         u, v = float(t.center[0]), float(t.center[1])
-                        d = abs(u - cx) + abs(v - cy)  # L1
+                        d = abs(u - cx) + abs(v - cy)
                         cand.append((d, t))
                     except Exception:
                         continue
@@ -233,79 +232,46 @@ def uv_publisher_thread(
                     if len(chosen) >= max_tags: break
                     add_if_ok(t)
 
-            # 2.3 再按面积最大补满
+            # 3) fill by area
             if len(chosen) < max_tags:
-                cand = [(-_tag_area(t), t) for t in tags_snapshot]  # 负号→面积大排前
+                cand = [(-_tag_area(t), t) for t in tags_snapshot]
                 for _, t in sorted(cand, key=lambda x: x[0]):
                     if len(chosen) >= max_tags: break
                     add_if_ok(t)
 
-            # 3) 发布 [(id,u,v), ...]
-            if chosen:
-                payload: List[Tuple[int, float, float]] = []
-                for t in chosen:
-                    try:
-                        payload.append((int(t.tag_id), float(t.center[0]), float(t.center[1])))
-                    except Exception:
-                        pass
+            # build payload
+            payload = []
+            for t in chosen:
+                try:
+                    payload.append((int(t.tag_id), float(t.center[0]), float(t.center[1])))
+                except Exception:
+                    pass
 
-                if payload:
-                    try:
-                        if uv_queue.full():
-                            _ = uv_queue.get_nowait()
-                    except queue.Empty:
-                        pass
-                    try:
-                        uv_queue.put_nowait(payload)  # 列表形式
-                    except queue.Full:
-                        pass
+            if payload:
+                # write to persistent list (detected_uvs) under lock
+                try:
+                    uv_lock.acquire()
+                    detected_uvs.clear()
+                    detected_uvs.extend(payload)   # 持久存储最近一次列表（不会被外部消费掉）
+                finally:
+                    uv_lock.release()
+
+                # also publish a snapshot to publish_uv for external consumers (non-blocking)
+                try:
+                    if publish_uv.full():
+                        _ = publish_uv.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    publish_uv.put_nowait(list(payload))
+                except queue.Full:
+                    pass
 
         except Exception as ex:
             _LOG.exception("uv_publisher_thread: unexpected error: %s", ex)
             time.sleep(0.05)
 
         time.sleep(dt)
-
-def uv_adapter_thread(uv_list_q, uv_single_q, stop_event):
-    """
-    Read [(id,u,v), ...] and publish a representative (u,v) to uv_single_q
-    (e.g., average of available points). Keeps IBVSReactor unchanged.
-    """
-    last = None
-    while not stop_event.is_set():
-        try:
-            while True:
-                last = uv_list_q.get_nowait()
-        except queue.Empty:
-            pass
-
-        if last:
-            # normalize payload
-            pts = []
-            if isinstance(last, tuple) and len(last) == 2:
-                pts = [last]
-            else:
-                for item in last:
-                    try:
-                        _, u, v = item
-                        pts.append((float(u), float(v)))
-                    except Exception:
-                        pass
-
-            if pts:
-                u = sum(p[0] for p in pts) / len(pts)
-                v = sum(p[1] for p in pts) / len(pts)
-                try:
-                    if uv_single_q.full():
-                        uv_single_q.get_nowait()
-                except queue.Empty:
-                    pass
-                try:
-                    uv_single_q.put_nowait((u, v))
-                except queue.Full:
-                    pass
-
-        time.sleep(0.01)
 
 
 # ========================== MAIN ==========================
@@ -318,6 +284,7 @@ if __name__ == '__main__':
     display_q = queue.Queue(maxsize=2)   # for overlay / live feed
     overlaid_q = queue.Queue(maxsize=2)
     publish_tag = queue.Queue(maxsize=4) # optional (和 uv publisher 无关)
+    publish_uv = queue.Queue(maxsize=4)   # 对外发布队列（外面消费不会影响 detected_uvs）
     tag_lock = threading.Lock()
 
     detected_tags = []                   # ✅ 必须是 list
@@ -328,15 +295,14 @@ if __name__ == '__main__':
         threading.Thread(target=camera_capture_thread, args=(cam, proc_q, display_q, exit_event), daemon=True),
         threading.Thread(target=tag_detector_thread, args=(proc_q, publish_tag, tag_lock, exit_event), daemon=True),
 
-        # ✅ 新增：启动 uv_publisher_thread
         threading.Thread(
             target=uv_publisher_thread,
-            args=(tag_lock, uv_queue, exit_event),
+            args=(tag_lock, publish_uv, exit_event),
             kwargs=dict(preferred_tag_ids=[0, 1], publish_hz=30.0, image_center=(320, 240), max_tags=2),
             daemon=True
         ),
 
-        threading.Thread(target=overlay_thread, args=(display_q, overlaid_q, uv_queue, tag_lock, exit_event), daemon=True),
+        threading.Thread(target=overlay_thread, args=(display_q, overlaid_q, tag_lock, exit_event), daemon=True),
         threading.Thread(target=livefeed_thread, args=(overlaid_q, exit_event), daemon=True)
     ]
 

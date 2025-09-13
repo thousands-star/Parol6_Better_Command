@@ -64,22 +64,21 @@ def GUI_process(shared_string,Command_data:RobotOutputData,
 
 def Eye_in_hand_process(frame_q, display_q, detected_tags, uv_queue, stop_event):
     """
-    Start 5 threads:
+    Start 4 threads:
     - camera_capture_thread: frames -> proc_q & raw_display_q
     - tag_detector_thread: detections -> Vision.detected_tags + detected_tags queue
     - uv_publisher_thread: detected_tags -> uv_multi_q  (list of up to 2)
-    - uv_adapter_thread: uv_multi_q -> uv_queue (single (u,v) for IBVS)
     - overlay_thread: raw_display_q + uv_multi_q -> display_q (GUI)
     """
     from tools.Camera.CameraBase import LogitechCamera, ESP32Camera
-    from Vision import camera_capture_thread, tag_detector_thread, overlay_thread, uv_publisher_thread,uv_adapter_thread
+    from Vision import camera_capture_thread, tag_detector_thread, overlay_thread, uv_publisher_thread
 
     tag_lock = threading.Lock()
     cam = ESP32Camera(url="http://172.20.10.2", mode="stream")
     import queue
     # local queues inside this process
     raw_display_q = multiprocessing.Queue(maxsize=2)   # camera -> overlay
-    uv_multi_q    = queue.Queue(maxsize=1)   # publisher(list) -> overlay & adapter
+    uv_multi_q    = uv_queue   # publisher(list) -> overlay & adapter
 
     # threads
     t1 = threading.Thread(target=camera_capture_thread,
@@ -97,20 +96,15 @@ def Eye_in_hand_process(frame_q, display_q, detected_tags, uv_queue, stop_event)
                           kwargs=dict(preferred_tag_ids=None, publish_hz=30.0, image_center=(320, 240), max_tags=2),
                           daemon=True)
 
-    # NEW: adapt list -> single (u,v) for IBVSReactor which expects one point
-    t4 = threading.Thread(target=uv_adapter_thread,
-                          args=(uv_multi_q, uv_queue, stop_event),
-                          daemon=True)
-
     # overlay consumes raw_display_q and uv_multi_q, outputs to the display_q you passed to GUI
-    t5 = threading.Thread(target=overlay_thread,
-                          args=(raw_display_q, display_q, uv_multi_q, tag_lock, stop_event),
+    t4 = threading.Thread(target=overlay_thread,
+                          args=(raw_display_q, display_q, tag_lock, stop_event),
                           daemon=True)
 
     logging.info("[Camera Process] Starting threads (capture, detect, publish, adapt, overlay)...")
-    for t in (t1, t2, t3, t4, t5):
+    for t in (t1, t2, t3, t4):
         t.start()
-    for t in (t1, t2, t3, t4, t5):
+    for t in (t1, t2, t3, t4):
         t.join()
 
     # cleanup
@@ -198,7 +192,7 @@ if __name__ == '__main__':
     uv_queue = multiprocessing.Queue(maxsize=1)
 
     ibvs_reactor = IBVSReactor(
-        uv_q=uv_queue,                 # 这里传“像素坐标 (u,v)”的队列
+        tags_q=uv_queue,                 # 这里传“像素坐标 (u,v)”的队列
         jog_control=Jog_control,
         shared_string=shared_string,
         depth_est=0.45,                # 先给一个大概深度，后续可在线更新
