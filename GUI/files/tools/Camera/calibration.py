@@ -46,8 +46,8 @@ os.makedirs(calib_dir, exist_ok=True)
 os.makedirs(param_dir, exist_ok=True)
 
 # === Desired capture resolution (forced) ===
-DESIRED_W = 640
-DESIRED_H = 480
+DESIRED_W = 320
+DESIRED_H = 240
 
 if __name__ == '__main__':
     # === Checkerboard specification ===
@@ -68,6 +68,7 @@ if __name__ == '__main__':
 
     # ESP32 示例：使用 snapshot/stream url（如果类接受 width/height，可传）
     cam = get_camera("ESP32Camera", url="http://172.20.10.2", mode="stream")
+
 
     print("📷 Press SPACE to capture image (saved as-is)")
     print("🔴 Press Q to finish capture and start calibration\n")

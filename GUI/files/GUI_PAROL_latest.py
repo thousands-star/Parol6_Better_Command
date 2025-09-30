@@ -1253,7 +1253,7 @@ def GUI(shared_string,command_data:RobotOutputData,robot_data: RobotInputData,
         # - ``'xyz'``, rotate by yaw about the x-axis, then by pitch about the new y-axis,
         # then by roll about the new z-axis. Convention for a robot gripper with z-axis forward
         # and y-axis between the gripper fingers.
-        robot_pose[3:] = T.rpy('deg','xyz') # get rotation component
+        robot_pose[3:] = T.rpy('deg','zyx') # get rotation component
   
         x_value = str(round(robot_pose[0],3))
         y_value = str(round(robot_pose[1],3))

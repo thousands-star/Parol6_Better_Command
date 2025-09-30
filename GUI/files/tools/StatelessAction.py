@@ -87,11 +87,21 @@ def cartesian_jog(cmd_data: RobotOutputData,
         for i in range(6): 
             cmd_data.speed[i] = 0
         cmd_data.command.value = 123
-        return "Warning: IK failed"
+        return f"Warning: IK failed: {dx:.4f}, {dy:.4f}, {dz:.4f}"
 
     q2    = sol.q if hasattr(sol, 'q') else sol[0]
-    q2[5] = q1[5]
-    dq_dt = (q2 - q1) / interval_s  # rad/s
+    print("q1:", np.rad2deg(q1))
+    print("q2:", np.rad2deg(q2))
+    dq = (q2-q1)
+
+    if dq[5] > 180*np.pi/180:
+        dq[5] -= 2*np.pi
+    elif dq[5] < -180*np.pi/180:
+        dq[5] += 2*np.pi
+    
+    dq_dt = dq / interval_s  # rad/s
+
+
     step_speeds = np.array([PAROL6_ROBOT.SPEED_RAD2STEP(dq_dt[i], i) for i in range(6)], dtype=float)
 
     # 无需动作
@@ -135,11 +145,5 @@ def cartesian_jog(cmd_data: RobotOutputData,
         # 非零则至少各轴 vmin，最多 target_lim（按比例缩过，一般不需要再裁）
         mag = min(max(mag, float(vmin_vec[i])), float(target_lim[i]))
         cmd_data.speed[i] = round_away_from_zero(sgn * mag)
-
-    # 只有当没有角度命令时，才把 J6 清零（如你确实想锁 J6）
-    if rx == 0 and ry == 0 and rz == 0:
-        # 若你想固定 J6，不随动：保留下面一行；否则删除
-        # cmd_data.speed[5] = 0
-        pass
 
     return log

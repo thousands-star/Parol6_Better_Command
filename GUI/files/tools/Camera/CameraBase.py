@@ -18,13 +18,17 @@ class CameraBase(ABC):
     Provides methods to open, close, and capture frames from a camera device.
     """
 
-    def __init__(self, source=0):
+    def __init__(self, source=0, K=None, dist=None):
         """
         Initialize with camera source (index or video file path).
         :param source: device index or video file path
+        :param K: address of camera Matrix
+        :param dist: address of distortion Matrix
         """
         self._source = source        # 摄像头来源（编号或视频文件）
         self._capture = None         # OpenCV VideoCapture 对象
+        self._camera_matrix = K
+        self._dist = dist
 
     def open(self) -> bool:
         """
@@ -69,6 +73,9 @@ class CameraBase(ABC):
         if not ret:
             raise RuntimeError("Failed to read frame from camera")
         return frame
+    
+    def get_K(self):
+        return self._camera_matrix, self._dist
 
     @abstractmethod
     def process_frame(self, frame):
@@ -98,13 +105,13 @@ class ESP32Camera(CameraBase):
     ESP32-CAM implementation using HTTP MJPEG stream or single-frame capture.
     """
 
-    def __init__(self, url: str, mode: str = "stream"):
+    def __init__(self, url: str, mode: str = "stream", K=None, dist=None):
         """
         :param url: Base URL of ESP32-CAM (e.g. "http://192.168.1.100")
         :param mode: "stream" for continuous MJPEG, "capture" for single snapshot
         """
         source = url if mode == "stream" else 0
-        super().__init__(source)
+        super().__init__(source, K=K, dist=dist)
         self.url = url.rstrip("/")
         self.mode = mode
         logging.debug(f"ESP32Camera initialized in {mode} mode with URL={self.url}")
@@ -150,14 +157,14 @@ class LogitechCamera(CameraBase):
     Inherits from CameraBase and configures resolution and frame rate for Logitech USB devices.
     """
 
-    def __init__(self, source=0, width=640, height=480, fps=30):
+    def __init__(self, source=0, width=640, height=480, fps=30, K=None, dist=None):
         """
         :param source: device index, DirectShow name string, or filepath
         :param width: desired frame width
         :param height: desired frame height
         :param fps: desired frames per second
         """
-        super().__init__(source)
+        super().__init__(source, K=K, dist = dist)
         self.width = width
         self.height = height
         self.fps = fps

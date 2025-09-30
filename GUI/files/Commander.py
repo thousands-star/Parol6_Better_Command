@@ -26,7 +26,8 @@ class Commander:
         self.cmd_data     = cmd_data
         self.robot_data   = robot_data
         self.plugins      = plugins
-        self.current_mode = current_mode
+        self.mode         = current_mode
+        self.current_mode = current_mode.value
 
         self.action_queue: List[Action] = []
         self.current_action: Action | None = None
@@ -36,6 +37,7 @@ class Commander:
     def giveCommand(self):
         # 1. 执行队头 Action 的一步
     # 1. 如果启用了控制并且队列非空，执行队头动作
+        self.update_mode()
         if self._enabled.value and self.action_queue:
             self.current_action = self.action_queue[0]
             stateless_fn = self.current_action.step(self.robot_data, self.cmd_data)
@@ -49,7 +51,7 @@ class Commander:
 
         # 2. 自动补充新动作（如果不在 API 模式下）
         if (self.get_mode() is not Mode.API) and len(self.action_queue) < self.max_queue_length:
-            reactor = self.plugins.get(self.current_mode.value)
+            reactor = self.plugins.get(Mode(self.current_mode))
             if reactor:
                 new_action = reactor.giveCommand(self.robot_data)
                 if new_action:
@@ -57,7 +59,6 @@ class Commander:
 
         if (Mode(self.get_mode()) is Mode.API) and len(self.action_queue) == 0:
             self.action_queue.append(DummyAction(self.robot_data.position))
-
         #return self.cmd_data.pack()
 
     def _busy_modal(self) -> bool:
@@ -86,10 +87,18 @@ class Commander:
         self._enabled.value = int(flag)
     
     def get_mode(self):
-        return self.current_mode.value
+        return self.current_mode
 
     def set_mode(self, mode):
-        self.current_mode.value = mode
+        if mode == Mode.IBVS.value:
+            ibvsReactor = self.plugins.get(Mode.IBVS)
+            ibvsReactor.reset(self.robot_data)   
+        self.current_mode = mode
+        self.mode.value = mode
+
+    def update_mode(self):
+        if self.current_mode != self.mode.value:
+            self.set_mode(self.mode.value)
 
     def is_enabled(self) -> bool:
         return bool(self._enabled.value)
@@ -100,14 +109,14 @@ class Commander:
 
     def should_auto_fill(self) -> bool:
         """是否允许 reactor 自动补充指令"""
-        return self.current_mode.value != Mode.API
+        return self.current_mode != Mode.API
 
     def to_dict(self) -> Dict[str, any]:
         """返回当前状态字典"""
-        if self.current_mode.value == 3:
+        if self.current_mode == 3:
             mode = 0
         else:
-            mode = self.current_mode.value
+            mode = self.current_mode
 
         if self.current_action is None:
             self.current_action = DummyAction(0)
@@ -119,7 +128,7 @@ class Commander:
             "commander internal": {
                 "queue length": len(self.action_queue),
                 "enabled": self._enabled.value,
-                "mode": self.current_mode.value,
+                "mode": self.current_mode,
                 "current action": self.current_action.name(),
             }
         }

@@ -6,6 +6,7 @@ import tools.PAROL6_ROBOT as PAROL6_ROBOT
 from multiprocessing import Array
 import logging
 import numpy as np
+import time
 
 app = Flask(__name__)
 
@@ -229,7 +230,7 @@ def set_mode(mode_val):
     except ValueError:
         return jsonify({"error": f"Invalid mode value: {mode_val}"}), 400
 
-    commander.current_mode.value = mode_enum.value
+    commander.set_mode(mode_enum.value)
     return jsonify({"message": f"Mode set to {mode_enum.name}", "mode_value": mode_enum.value})
 
 
@@ -385,3 +386,138 @@ def inject_move_joint():
         "interval_s": interval_s,
         "tolerance_steps": tolerance_steps
     }), 200
+
+@app.route('/api/pick', methods=['POST'])
+def inject_pick():
+    """
+    Enqueue a pick sequence:
+      1) Move to Pose 1 (waiting pose)
+      2) Move to Pose 2 (ready to pick)
+      3) Switch mode -> 4 (IBVS)
+    Accepts optional JSON body to override poses / timing:
+      {
+        "pose1": {"q_deg": [..6..], "t": 10.0},
+        "pose2": {"q_deg": [..6..], "t": 6.0},
+        "profile": "poly",        # optional (poly|trap)
+        "tracking": "pos",        # optional (pos|speed)
+        "interval_s": 0.01,
+        "tolerance_steps": 6
+      }
+    """
+    if commander is None:
+        return jsonify({"error": "Commander not initialized"}), 503
+
+    data = request.get_json(silent=True) or {}
+
+    # --- defaults from your example ---
+    default_pose1 = {"q_deg": [0, -124.304, 110.257, -1.42, 29.391, 270], "t": 10.0}
+    default_pose2 = {"q_deg": [-17.763, -111.524, 123.046, 21.108, 35.62, 249.936], "t": 6.0}
+
+    p1 = data.get("pose1", default_pose1)
+    p2 = data.get("pose2", default_pose2)
+
+    # parse options (shared across both actions unless overridden individually)
+    profile = (data.get("profile") or p1.get("profile") or p2.get("profile") or "poly").lower()
+    if profile not in ("poly", "trap"):
+        return jsonify({"error": "profile must be 'poly' or 'trap'"}), 400
+
+    tracking = (data.get("tracking") or p1.get("tracking") or p2.get("tracking") or "pos").lower()
+    if tracking not in ("pos", "speed"):
+        return jsonify({"error": "tracking must be 'pos' or 'speed'"}), 400
+
+    interval_s = float(data.get("interval_s", data.get("interval", p1.get("interval_s", 0.01))))
+    if interval_s < 1e-3:
+        return jsonify({"error": "interval_s must be >= 0.001"}), 400
+
+    tolerance_steps = int(data.get("tolerance_steps", p1.get("tolerance_steps", 6)))
+
+    # helper to normalise q_deg -> float list
+    def parse_q(obj, name):
+        q = obj.get("q") or obj.get("q_deg") or obj.get("q_deg")
+        if not isinstance(q, list) or len(q) != 6:
+            raise ValueError(f"{name}: expected 6-element 'q' or 'q_deg' list")
+        try:
+            return [float(x) for x in q]
+        except Exception:
+            raise ValueError(f"{name}: joint angles must be numeric")
+
+    try:
+        q1 = parse_q(p1, "pose1")
+        q2 = parse_q(p2, "pose2")
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # durations (allow 0 to mean v/a mode)
+    try:
+        t1 = float(p1.get("t", 0.0))
+    except Exception:
+        t1 = 0.0
+    try:
+        t2 = float(p2.get("t", 0.0))
+    except Exception:
+        t2 = 0.0
+
+    # Build actions
+    try:
+        act1 = Move2JointsAction(
+            q_deg=q1, t=t1, profile=profile,
+            tracking=tracking, interval_s=interval_s,
+            tolerance_steps=tolerance_steps, shared_string=shared_string
+        )
+        act2 = Move2JointsAction(
+            q_deg=q2, t=t2, profile=profile,
+            tracking=tracking, interval_s=interval_s,
+            tolerance_steps=tolerance_steps, shared_string=shared_string
+        )
+    except Exception as e:
+        return jsonify({"error": f"failed to construct actions: {repr(e)}"}), 500
+
+    # Inject actions (commander.inject_action should enqueue them)
+    try:
+        ok1 = commander.inject_action(act1)
+        ok2 = commander.inject_action(act2)
+    except Exception as e:
+        return jsonify({"injected": False, "error": repr(e)}), 500
+
+# === set mode to 4 (IBVS) ===
+    try:
+        commander.current_mode.value = Mode(4).value
+        mode_set = True
+    except Exception as e:
+        mode_set = False
+        mode_err = repr(e)
+
+    # === wait until IBVS complete ===
+    IBVSreactor = commander.plugins.get(Mode(4).value)
+    while IBVSreactor.is_completed is False:
+        time.sleep(0.05)
+
+    # === set mode to 1 () ===
+    try:
+        commander.current_mode.value = Mode(1).value
+        mode_set = True
+    except Exception as e:
+        mode_set = False
+        mode_err = repr(e)
+    
+    # act3 = TimedCartesianJogAction(
+    #         dx=0, dy=0, dz=0,
+    #         rx=0, ry=0, rz=0,
+    #         frame="TRF",
+    #         speed_pct=22,
+    #         interval_s=interval_s,
+    #         duration_s=8,
+    #         shared_string=None  # 如果你有共享显示 buffer，可把它传进来
+    #     )
+
+    resp = {
+        "injected": [bool(ok1), bool(ok2)],
+        "pose1": {"q_deg": q1, "t": t1},
+        "pose2": {"q_deg": q2, "t": t2},
+        "mode_set": mode_set
+    }
+    if not mode_set:
+        resp["mode_error"] = mode_err
+
+    return jsonify(resp), 200
+

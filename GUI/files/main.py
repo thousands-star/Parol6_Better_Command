@@ -3,6 +3,8 @@ import multiprocessing
 import threading
 import logging
 import sys
+import os
+from datetime import datetime
 
 import SIMULATOR_Robot
 from tools.init_tools import init_serial, get_image_path,get_my_os
@@ -15,6 +17,8 @@ from commander_loop import commander_loop, Monitor_system
 
 from robot_api import start_flask_api
 from FlaskKiller import FlaskShutdownThread
+
+from Centroid_IBVS import CentroidIBVSReactor
 
 
 logging.basicConfig(level = logging.DEBUG,
@@ -71,10 +75,15 @@ def Eye_in_hand_process(frame_q, display_q, detected_tags, uv_queue, stop_event)
     - overlay_thread: raw_display_q + uv_multi_q -> display_q (GUI)
     """
     from tools.Camera.CameraBase import LogitechCamera, ESP32Camera
+    import numpy as np
     from Vision import camera_capture_thread, tag_detector_thread, overlay_thread, uv_publisher_thread
 
     tag_lock = threading.Lock()
-    cam = ESP32Camera(url="http://172.20.10.2", mode="stream")
+    param_dir = os.path.join(os.path.dirname(__file__), "tools", "Camera", "param")
+    K = np.loadtxt(os.path.join(param_dir, "camera_intrinsic_matrix.csv"), delimiter=',').astype(np.float32)
+    dist = np.loadtxt(os.path.join(param_dir, "distortion_coeffs.csv"), delimiter=',').astype(np.float32)
+
+    cam = ESP32Camera(url="http://172.20.10.2", mode="stream",K=K, dist=dist)
     import queue
     # local queues inside this process
     raw_display_q = multiprocessing.Queue(maxsize=2)   # camera -> overlay
@@ -87,13 +96,13 @@ def Eye_in_hand_process(frame_q, display_q, detected_tags, uv_queue, stop_event)
 
     # Use your detected_tags queue here; Vision.tag_detector_thread supports queue snapshots
     t2 = threading.Thread(target=tag_detector_thread,
-                          args=(frame_q, detected_tags, tag_lock, stop_event),
+                          args=(frame_q, detected_tags,cam, tag_lock, stop_event),
                           daemon=True)
 
     # NEW: publish up to two tags as list
     t3 = threading.Thread(target=uv_publisher_thread,
                           args=(tag_lock, uv_multi_q, stop_event),
-                          kwargs=dict(preferred_tag_ids=None, publish_hz=30.0, image_center=(320, 240), max_tags=2),
+                          kwargs=dict(preferred_tag_ids=None, publish_hz=0.5, cam=cam, max_tags=2),
                           daemon=True)
 
     # overlay consumes raw_display_q and uv_multi_q, outputs to the display_q you passed to GUI
@@ -187,20 +196,77 @@ if __name__ == '__main__':
                            Buttons=Buttons
                            )
     
-    followtagreactor = FollowTagReactor(detected_tags=detected_tags, jog_control=Jog_control,shared_string=shared_string)
     
     uv_queue = multiprocessing.Queue(maxsize=1)
 
+    DESIRED_UV_8 = [
+    # Tag 6
+    (193,60), (193,41), (174,40), (174,58),
+    # Tag 9
+    (121,56), (141,56), (142,38), (123,38),
+    ]
+
+    DESIRED_UV_BENCH = [
+    # Tag 2
+    (256,120), (255,99), (236,99), (237,120),
+    # Tag 5
+    (85,122), (84,102), (66,102), (66,122),
+    ]
+
+    logfile = os.path.join("logs", f"ibvs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl")
+
+
     ibvs_reactor = IBVSReactor(
-        tags_q=uv_queue,                 # 这里传“像素坐标 (u,v)”的队列
-        jog_control=Jog_control,
-        shared_string=shared_string,
-        depth_est=0.45,                # 先给一个大概深度，后续可在线更新
-        lam=0.6,
-        frame="TRF"
+        tags_q        = uv_queue,
+        jog_control   = Jog_control,
+        shared_string = shared_string,        
+        target_ids    = [6, 9], #6,9
+        desired_uv    = DESIRED_UV_8,
+        # 控制参数（先稳一点）
+        lam           = 0.6,
+        mu            = 1e-3,
+        max_step_m    = 0.001,
+        max_rot_rad   = 0.01,
+        use_depth     = True,           # 若 pose_t[2] 可用，建议 True
+        depth_est     = 0.50,
+        # 单位对齐：你的 cartesian_jog 用的是 unit='deg'，所以这里用度
+        angles_in_rad = False,
+        # 坐标映射（默认 Cam X->X, Cam Y->-Y, Cam Z->Z）
+        # P_override   = P_swap,        # 若需要旧映射，把上面 P_swap 打开并传入
+        # 终止条件
+        stop_on_converge = True,
+        converge_px_rms  = 15.0,
+        converge_frames  = 50,
+        timeout_s        = None,
+        stagnation_eps   = 1e-6,
+        stagnation_frames= 30,
+        # 轴掩码（排障好用，1=启用；先全开）
+        axis_mask_lin = (1,1,0),
+        axis_mask_ang = (-1,1,1),
+        rvec_mask=(1,1,0),
+        # JSON Lines 日志（便于仿真/复盘）
+        log_path   = logfile,
+        log_every  = 1
     )
 
-    plugins = {Mode.GUI: guireactor, Mode.FOLLOW_TAG: followtagreactor, Mode.IBVS: ibvs_reactor}
+    centroid_reactor = CentroidIBVSReactor(
+    detected_tags_queue = detected_tags,   # multiprocessing.Queue
+    jog_control = Jog_control,             # multiprocessing.Array (speed slider)
+    shared_string = shared_string,         # multiprocessing.Array('c', ...) - status log
+    desired_uv = None,                     # None -> will use principal point cx,cy from K if present
+    depth_m = 0.30,                        # 估计深度（m），视你的相机-目标距离调
+    lam = 0.9,                             # 比例增益
+    deadband_px = 6.0,                     # 像素死区
+    max_step_m = 0.01,                     # 每 tick 最大位移 (m) 保守起见设小
+    invert_x = False,
+    invert_y = True,
+    frame = "TRF",
+    speed_pct_default = 30.0,
+    interval_s = 0.01
+    )
+   
+
+    plugins = {Mode.GUI: guireactor, Mode.IBVS: ibvs_reactor}
     
     commander = Commander(cmd_data=Command_data, robot_data= Robot_data, plugins=plugins, current_mode=Robot_mode)
     

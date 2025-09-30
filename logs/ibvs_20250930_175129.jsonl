@@ -1,0 +1,6 @@
+{"tick": 1, "kind": "exception", "msg": "'IBVSReactor' object has no attribute 'rpy_gain'"}
+{"tick": 5, "kind": "exception", "msg": "'IBVSReactor' object has no attribute 'rpy_gain'"}
+{"tick": 100, "kind": "exception", "msg": "'IBVSReactor' object has no attribute 'rpy_gain'"}
+{"tick": 198, "kind": "exception", "msg": "'IBVSReactor' object has no attribute 'rpy_gain'"}
+{"tick": 293, "kind": "exception", "msg": "'IBVSReactor' object has no attribute 'rpy_gain'"}
+{"tick": 392, "kind": "exception", "msg": "'IBVSReactor' object has no attribute 'rpy_gain'"}
